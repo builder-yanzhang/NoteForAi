@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NoteForAI</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #fafafa; --surface: #fff; --border: #e5e7eb;
+  --text: #1f2937; --text2: #6b7280; --text3: #9ca3af;
+  --accent: #2563eb; --accent-light: #eff6ff;
+  --danger: #ef4444; --danger-light: #fef2f2;
+  --radius: 8px; --shadow: 0 1px 3px rgba(0,0,0,.08);
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono: "SF Mono", "Fira Code", "Consolas", monospace;
+}
+
+body { font-family: var(--font); background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
+
+/* --- Welcome --- */
+.welcome { display: flex; align-items: center; justify-content: center; height: 100vh; }
+.welcome-card {
+  background: var(--surface); border-radius: 12px; padding: 48px; text-align: center;
+  box-shadow: 0 4px 24px rgba(0,0,0,.06); max-width: 400px; width: 100%;
+}
+.welcome-card h1 { font-size: 24px; font-weight: 600; margin-bottom: 8px; }
+.welcome-card p { color: var(--text2); margin-bottom: 32px; font-size: 14px; }
+.welcome-card input {
+  width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius);
+  font-size: 14px; margin-bottom: 12px; outline: none; font-family: var(--mono);
+}
+.welcome-card input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
+.btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 9px 18px;
+  border: none; border-radius: var(--radius); font-size: 14px; cursor: pointer;
+  font-weight: 500; transition: all .15s;
+}
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: #1d4ed8; }
+.btn-ghost { background: transparent; color: var(--text2); }
+.btn-ghost:hover { background: var(--bg); color: var(--text); }
+.btn-danger { background: transparent; color: var(--danger); }
+.btn-danger:hover { background: var(--danger-light); }
+.btn-sm { padding: 5px 10px; font-size: 13px; }
+.welcome-actions { display: flex; flex-direction: column; gap: 8px; }
+.welcome-actions .btn { width: 100%; justify-content: center; }
+.divider { color: var(--text3); font-size: 13px; margin: 4px 0; }
+
+/* --- Layout --- */
+.app { display: flex; flex-direction: column; height: 100vh; }
+.topbar {
+  display: flex; align-items: center; gap: 12px; padding: 0 20px; height: 52px;
+  background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.topbar-brand { font-weight: 600; font-size: 15px; color: var(--text); white-space: nowrap; }
+.topbar-token {
+  font-family: var(--mono); font-size: 12px; color: var(--text3); max-width: 200px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.search-box {
+  flex: 1; max-width: 400px; position: relative; margin-left: auto;
+}
+.search-box input {
+  width: 100%; padding: 7px 12px 7px 32px; border: 1px solid var(--border);
+  border-radius: var(--radius); font-size: 13px; outline: none; background: var(--bg);
+}
+.search-box input:focus { border-color: var(--accent); background: var(--surface); }
+.search-box svg {
+  position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+  width: 16px; height: 16px; color: var(--text3); pointer-events: none;
+}
+.search-results {
+  position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0,0,0,.1); max-height: 320px; overflow-y: auto; z-index: 100;
+  display: none;
+}
+.search-results.open { display: block; }
+.search-item { padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--border); }
+.search-item:last-child { border-bottom: none; }
+.search-item:hover { background: var(--accent-light); }
+.search-item-path { font-size: 13px; font-weight: 500; color: var(--accent); }
+.search-item-snippet { font-size: 12px; color: var(--text2); margin-top: 2px; line-height: 1.4; }
+
+.main { display: flex; flex: 1; overflow: hidden; }
+
+/* --- Sidebar --- */
+.sidebar {
+  width: 260px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.sidebar-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.sidebar-header span { font-size: 13px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: .5px; }
+.tree-wrap { flex: 1; overflow-y: auto; padding: 8px 0; }
+
+.tree-item {
+  display: flex; align-items: center; gap: 6px; padding: 5px 16px; cursor: pointer;
+  font-size: 13px; color: var(--text); white-space: nowrap; user-select: none;
+}
+.tree-item:hover { background: var(--bg); }
+.tree-item.active { background: var(--accent-light); color: var(--accent); font-weight: 500; }
+.tree-icon { width: 16px; height: 16px; flex-shrink: 0; color: var(--text3); }
+.tree-item.active .tree-icon { color: var(--accent); }
+.tree-toggle { width: 14px; height: 14px; flex-shrink: 0; color: var(--text3); transition: transform .15s; }
+.tree-toggle.open { transform: rotate(90deg); }
+.tree-toggle.hidden { visibility: hidden; }
+.tree-children { display: none; }
+.tree-children.open { display: block; }
+
+/* --- Content --- */
+.content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.content-header {
+  display: flex; align-items: center; gap: 8px; padding: 12px 20px;
+  border-bottom: 1px solid var(--border); flex-shrink: 0; min-height: 52px;
+}
+.content-path { font-size: 14px; font-weight: 500; flex: 1; font-family: var(--mono); }
+.content-body { flex: 1; overflow-y: auto; padding: 20px; }
+.content-body pre {
+  font-family: var(--mono); font-size: 14px; line-height: 1.7;
+  white-space: pre-wrap; word-break: break-word;
+}
+.content-body textarea {
+  width: 100%; height: 100%; border: none; outline: none; resize: none;
+  font-family: var(--mono); font-size: 14px; line-height: 1.7; color: var(--text);
+}
+.empty-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 100%; color: var(--text3); gap: 8px;
+}
+.empty-state svg { width: 48px; height: 48px; }
+.empty-state p { font-size: 14px; }
+
+/* --- Setup Page --- */
+.setup-page { padding: 40px; max-width: 720px; margin: 0 auto; overflow-y: auto; height: 100%; }
+.setup-page h2 { font-size: 20px; font-weight: 600; margin-bottom: 24px; }
+.setup-section { margin-bottom: 28px; }
+.setup-section h3 { font-size: 14px; font-weight: 600; color: var(--text2); margin-bottom: 10px; text-transform: uppercase; letter-spacing: .5px; }
+.setup-block {
+  position: relative; background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px; padding-right: 60px;
+}
+.setup-block pre {
+  font-family: var(--mono); font-size: 13px; line-height: 1.6;
+  white-space: pre-wrap; word-break: break-all; color: var(--text);
+}
+.setup-block .copy-btn {
+  position: absolute; top: 8px; right: 8px; padding: 4px 10px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+  font-size: 12px; color: var(--text2); cursor: pointer; transition: all .15s;
+}
+.setup-block .copy-btn:hover { background: var(--accent-light); color: var(--accent); border-color: var(--accent); }
+.setup-hint { font-size: 12px; color: var(--text3); margin-top: 8px; line-height: 1.5; }
+
+/* --- Dialog --- */
+.dialog-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.3); display: flex;
+  align-items: center; justify-content: center; z-index: 200;
+}
+.dialog {
+  background: var(--surface); border-radius: 12px; padding: 24px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.12); width: 360px;
+}
+.dialog h3 { font-size: 16px; margin-bottom: 16px; }
+.dialog input {
+  width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius);
+  font-size: 14px; outline: none; font-family: var(--mono); margin-bottom: 16px;
+}
+.dialog input:focus { border-color: var(--accent); }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* --- Toast --- */
+.toast {
+  position: fixed; bottom: 24px; right: 24px; padding: 10px 18px;
+  background: var(--text); color: #fff; border-radius: var(--radius);
+  font-size: 13px; z-index: 300; opacity: 0; transition: opacity .2s;
+}
+.toast.show { opacity: 1; }
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+</style>
+</head>
+<body>
+
+<!-- Welcome -->
+<div id="welcome" class="welcome" style="display:none">
+  <div class="welcome-card">
+    <h1>NoteForAI</h1>
+    <p>AI 专用笔记系统</p>
+    <div class="welcome-actions">
+      <button class="btn btn-primary" onclick="doCreateToken()">创建新 Token</button>
+      <div class="divider">或输入已有 Token</div>
+      <input id="tokenInput" type="text" placeholder="nfa_..." spellcheck="false" onkeydown="if(event.key==='Enter')doEnterToken()">
+      <button class="btn btn-ghost" onclick="doEnterToken()">进入</button>
+    </div>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app" class="app" style="display:none">
+  <div class="topbar">
+    <span class="topbar-brand">NoteForAI</span>
+    <span class="topbar-token" id="topbarToken"></span>
+    <button class="btn btn-ghost btn-sm" onclick="copyToken()" title="复制 Token">复制</button>
+    <button class="btn btn-ghost btn-sm" onclick="showSetup()">配置</button>
+    <button class="btn btn-ghost btn-sm" onclick="switchToken()">切换</button>
+    <div class="search-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input id="searchInput" type="text" placeholder="搜索笔记内容..." oninput="onSearch()" onblur="setTimeout(()=>closeSearch(),200)">
+      <div class="search-results" id="searchResults"></div>
+    </div>
+  </div>
+  <div class="main">
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <span>文件</span>
+        <button class="btn btn-ghost btn-sm" onclick="showNewDialog()">+ 新建</button>
+      </div>
+      <div class="tree-wrap" id="treeWrap"></div>
+    </div>
+    <div class="content" id="contentArea">
+      <div class="content-header" id="contentHeader" style="display:none">
+        <span class="content-path" id="contentPath"></span>
+        <button class="btn btn-ghost btn-sm" id="btnEdit" onclick="startEdit()">编辑</button>
+        <button class="btn btn-primary btn-sm" id="btnSave" onclick="saveEdit()" style="display:none">保存</button>
+        <button class="btn btn-ghost btn-sm" id="btnCancel" onclick="cancelEdit()" style="display:none">取消</button>
+        <button class="btn btn-danger btn-sm" id="btnDelete" onclick="doDelete()">删除</button>
+      </div>
+      <div class="content-body" id="contentBody">
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/><path d="M12 8v8M8 12h8"/></svg>
+          <p>选择文件查看，或新建笔记</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- New Note Dialog -->
+<div class="dialog-overlay" id="newDialog" style="display:none" onclick="if(event.target===this)closeNewDialog()">
+  <div class="dialog">
+    <h3>新建笔记</h3>
+    <input id="newPath" type="text" placeholder="路径，如：项目A/笔记" spellcheck="false" onkeydown="if(event.key==='Enter')doCreate()">
+    <div class="dialog-actions">
+      <button class="btn btn-ghost" onclick="closeNewDialog()">取消</button>
+      <button class="btn btn-primary" onclick="doCreate()">创建</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let TOKEN = localStorage.getItem('nfa_token') || '';
+let currentPath = '';
+let isEditing = false;
+let isSetupView = false;
+
+function baseUrl() { return location.origin; }
+
+// --- Init ---
+function init() {
+  if (TOKEN && TOKEN.startsWith('nfa_')) {
+    showApp();
+  } else {
+    showWelcome();
+  }
+}
+
+function showWelcome() {
+  $('#welcome').style.display = '';
+  $('#app').style.display = 'none';
+  $('#tokenInput').value = '';
+}
+
+function showApp() {
+  $('#welcome').style.display = 'none';
+  $('#app').style.display = '';
+  $('#topbarToken').textContent = TOKEN.slice(0, 8) + '...' + TOKEN.slice(-4);
+  $('#topbarToken').title = TOKEN;
+  isSetupView = false;
+  loadTree();
+}
+
+// --- Token ---
+async function doCreateToken() {
+  const res = await api('/create_token');
+  const data = await res.json();
+  TOKEN = data.token;
+  localStorage.setItem('nfa_token', TOKEN);
+  toast('Token 已创建');
+  $('#welcome').style.display = 'none';
+  $('#app').style.display = '';
+  $('#topbarToken').textContent = TOKEN.slice(0, 8) + '...' + TOKEN.slice(-4);
+  $('#topbarToken').title = TOKEN;
+  loadTree();
+  showSetup();
+}
+
+function doEnterToken() {
+  const t = $('#tokenInput').value.trim();
+  if (!t.startsWith('nfa_')) { toast('Token 格式不正确'); return; }
+  TOKEN = t;
+  localStorage.setItem('nfa_token', TOKEN);
+  showApp();
+}
+
+function switchToken() {
+  TOKEN = '';
+  localStorage.removeItem('nfa_token');
+  currentPath = '';
+  isSetupView = false;
+  showWelcome();
+}
+
+function copyToken() {
+  copyText(TOKEN);
+  toast('Token 已复制');
+}
+
+// --- Setup / Config Page ---
+function showSetup() {
+  isSetupView = true;
+  currentPath = '';
+  $('#contentHeader').style.display = 'none';
+
+  const base = baseUrl();
+  const promptText = `你拥有一个持久记忆系统 NoteForAI，用它记住关于用户的一切。
+
+接口：${base}/${TOKEN}/
+调用：POST + JSON body
+
+| 操作 | 用途 | Body |
+|------|------|------|
+| write | 新建/覆盖 | {"path": "...", "content": "..."} |
+| append | 追加内容 | {"path": "...", "content": "..."} |
+| read | 读取笔记 | {"path": "..."} |
+| search | 搜索内容 | {"query": "..."} |
+| tree | 浏览结构 | {"path": ""} |
+| list | 列出目录 | {"path": "..."} |
+| delete | 删除笔记 | {"path": "..."} |
+
+你的行为准则：
+1. 每次对话开始，先 tree() 回顾已有记忆，按需 read，用已知信息自然地回应用户——像一个记得一切的老朋友。
+2. 主动记录，宁多勿漏。对话中出现任何有价值的信息就写入，不必等用户要求。用合理的目录结构自行组织，首次用 write，补充用 append，信息变更时 write 覆盖。每条标注日期，写入后一句话告知用户。`;
+
+  const mcpConfig = `{
+  "mcpServers": {
+    "noteforai": {
+      "command": "noteforai",
+      "args": ["mcp", "${TOKEN}"]
+    }
+  }
+}`;
+
+  const curlExamples = `# 写入
+curl -X POST '${base}/${TOKEN}/write' \\
+  -H 'Content-Type: application/json' \\
+  -d '{"path":"test/hello","content":"Hello World"}'
+
+# 读取
+curl '${base}/${TOKEN}/read?path=test/hello'
+
+# 搜索
+curl '${base}/${TOKEN}/search?q=Hello'
+
+# 目录树
+curl '${base}/${TOKEN}/tree'`;
+
+  $('#contentBody').innerHTML = `
+    <div class="setup-page">
+      <h2>接入配置</h2>
+
+      <div class="setup-section">
+        <h3>Token</h3>
+        <div class="setup-block">
+          <pre>${esc(TOKEN)}</pre>
+          <button class="copy-btn" onclick="copyBlock(this)">复制</button>
+        </div>
+      </div>
+
+      <div class="setup-section">
+        <h3>AI 提示词模板</h3>
+        <div class="setup-block">
+          <pre>${esc(promptText)}</pre>
+          <button class="copy-btn" onclick="copyBlock(this)">复制</button>
+        </div>
+        <div class="setup-hint">将此提示词添加到 AI 的系统提示中，AI 即可通过 HTTP 接口使用 NoteForAI。</div>
+      </div>
+
+      <div class="setup-section">
+        <h3>MCP 配置</h3>
+        <div class="setup-block">
+          <pre>${esc(mcpConfig)}</pre>
+          <button class="copy-btn" onclick="copyBlock(this)">复制</button>
+        </div>
+        <div class="setup-hint">添加到 Claude Code 的 MCP 配置文件中（需本地安装 noteforai 二进制）。<br>也可通过命令行直接启动：<code>noteforai mcp ${esc(TOKEN)}</code></div>
+      </div>
+
+      <div class="setup-section">
+        <h3>cURL 示例</h3>
+        <div class="setup-block">
+          <pre>${esc(curlExamples)}</pre>
+          <button class="copy-btn" onclick="copyBlock(this)">复制</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function copyBlock(btn) {
+  const pre = btn.parentElement.querySelector('pre');
+  copyText(pre.textContent);
+  btn.textContent = '已复制';
+  setTimeout(() => btn.textContent = '复制', 1500);
+}
+
+function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text);
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;left:-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+}
+
+// --- API ---
+function api(path, body) {
+  const opts = { headers: {} };
+  if (body !== undefined) {
+    opts.method = 'POST';
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  return fetch(path, opts);
+}
+
+function userApi(action, body) {
+  return api('/' + TOKEN + '/' + action, body);
+}
+
+// --- Tree ---
+async function loadTree() {
+  const res = await userApi('tree', {});
+  if (res.status === 401) { switchToken(); return; }
+  const root = await res.json();
+  $('#treeWrap').innerHTML = '';
+  if (root.children && root.children.length > 0) {
+    renderTree(root.children, $('#treeWrap'), '');
+  } else {
+    $('#treeWrap').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">空空如也</div>';
+  }
+}
+
+function renderTree(children, container, basePath) {
+  children.forEach(node => {
+    const isDir = node.name.endsWith('/');
+    const name = isDir ? node.name.slice(0, -1) : node.name;
+    const fullPath = basePath ? basePath + '/' + name : name;
+
+    const item = document.createElement('div');
+    item.className = 'tree-item' + (fullPath === currentPath ? ' active' : '');
+    item.style.paddingLeft = (16 + (basePath.split('/').filter(Boolean).length) * 16) + 'px';
+
+    const toggleSvg = isDir
+      ? '<svg class="tree-toggle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>'
+      : '<svg class="tree-toggle hidden" viewBox="0 0 24 24"></svg>';
+
+    const iconSvg = isDir
+      ? '<svg class="tree-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/></svg>'
+      : '<svg class="tree-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+
+    item.innerHTML = toggleSvg + iconSvg + '<span>' + esc(name) + '</span>';
+
+    if (isDir) {
+      const childContainer = document.createElement('div');
+      childContainer.className = 'tree-children';
+
+      item.onclick = (e) => {
+        e.stopPropagation();
+        const toggle = item.querySelector('.tree-toggle');
+        const open = childContainer.classList.toggle('open');
+        toggle.classList.toggle('open', open);
+      };
+
+      container.appendChild(item);
+      if (node.children && node.children.length > 0) {
+        renderTree(node.children, childContainer, fullPath);
+      }
+      container.appendChild(childContainer);
+    } else {
+      item.onclick = () => openFile(fullPath);
+      container.appendChild(item);
+    }
+  });
+}
+
+// --- File operations ---
+async function openFile(path) {
+  if (isEditing) cancelEdit();
+  isSetupView = false;
+  currentPath = path;
+
+  const res = await userApi('read', { path });
+  if (!res.ok) { toast('读取失败'); return; }
+
+  const text = await res.text();
+  showContent(path, text);
+  refreshTreeHighlight();
+}
+
+function showContent(path, text) {
+  $('#contentHeader').style.display = '';
+  $('#contentPath').textContent = path;
+  $('#contentBody').innerHTML = '<pre>' + esc(text) + '</pre>';
+  $('#btnEdit').style.display = '';
+  $('#btnSave').style.display = 'none';
+  $('#btnCancel').style.display = 'none';
+  $('#btnDelete').style.display = '';
+  isEditing = false;
+}
+
+function startEdit() {
+  const pre = $('#contentBody pre');
+  if (!pre) return;
+  const text = pre.textContent;
+  $('#contentBody').innerHTML = '<textarea>' + esc(text) + '</textarea>';
+  $('#contentBody textarea').focus();
+  $('#btnEdit').style.display = 'none';
+  $('#btnSave').style.display = '';
+  $('#btnCancel').style.display = '';
+  $('#btnDelete').style.display = 'none';
+  isEditing = true;
+}
+
+async function saveEdit() {
+  const ta = $('#contentBody textarea');
+  if (!ta) return;
+  const content = ta.value;
+  const res = await userApi('write', { path: currentPath, content });
+  if (!res.ok) { toast('保存失败'); return; }
+  toast('已保存');
+  showContent(currentPath, content);
+  loadTree();
+}
+
+function cancelEdit() {
+  if (currentPath) openFile(currentPath);
+  isEditing = false;
+}
+
+async function doDelete() {
+  if (!currentPath) return;
+  if (!confirm('确认删除 ' + currentPath + '？')) return;
+  const res = await userApi('delete', { path: currentPath });
+  if (res.status !== 204) { toast('删除失败'); return; }
+  toast('已删除');
+  currentPath = '';
+  $('#contentHeader').style.display = 'none';
+  showEmptyState();
+  loadTree();
+}
+
+function showEmptyState() {
+  $('#contentBody').innerHTML = '<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/><path d="M12 8v8M8 12h8"/></svg><p>选择文件查看，或新建笔记</p></div>';
+}
+
+// --- New note ---
+function showNewDialog() {
+  $('#newDialog').style.display = '';
+  $('#newPath').value = '';
+  $('#newPath').focus();
+}
+
+function closeNewDialog() { $('#newDialog').style.display = 'none'; }
+
+async function doCreate() {
+  const path = $('#newPath').value.trim();
+  if (!path) { toast('请输入路径'); return; }
+  closeNewDialog();
+  const res = await userApi('write', { path, content: '' });
+  if (!res.ok) { toast('创建失败'); return; }
+  toast('已创建');
+  await loadTree();
+  openFile(path);
+  startEdit();
+}
+
+// --- Search ---
+let searchTimer = null;
+function onSearch() {
+  clearTimeout(searchTimer);
+  const q = $('#searchInput').value.trim();
+  if (!q) { closeSearch(); return; }
+  searchTimer = setTimeout(() => doSearch(q), 300);
+}
+
+async function doSearch(q) {
+  const res = await userApi('search', { query: q });
+  const results = await res.json();
+  const el = $('#searchResults');
+  if (!results || results.length === 0) {
+    el.innerHTML = '<div style="padding:14px;text-align:center;color:var(--text3);font-size:13px">无结果</div>';
+    el.classList.add('open');
+    return;
+  }
+  el.innerHTML = results.map(r =>
+    '<div class="search-item" onmousedown="openFile(\'' + escAttr(r.path) + '\');closeSearch()">' +
+    '<div class="search-item-path">' + esc(r.path) + '</div>' +
+    '<div class="search-item-snippet">' + esc(r.snippet) + '</div></div>'
+  ).join('');
+  el.classList.add('open');
+}
+
+function closeSearch() {
+  $('#searchResults').classList.remove('open');
+  $('#searchInput').value = '';
+}
+
+// --- Helpers ---
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function escAttr(s) { return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'"); }
+
+function refreshTreeHighlight() {
+  document.querySelectorAll('.tree-item').forEach(el => el.classList.remove('active'));
+}
+
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2000);
+}
+
+init();
+</script>
+</body>
+</html>
