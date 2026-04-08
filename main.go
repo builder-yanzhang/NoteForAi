@@ -34,6 +34,15 @@ func main() {
 		}
 	}
 
+	trashDays := 30
+	if td := env("TRASH_DAYS", "30"); td != "30" {
+		if d, err := strconv.Atoi(td); err == nil && d >= 0 {
+			trashDays = d
+		}
+	}
+	s.StartTrashCleaner(trashDays)
+	log.Printf("Trash cleaner: %d day retention", trashDays)
+
 	mode := "serve"
 	if len(os.Args) > 1 {
 		mode = os.Args[1]

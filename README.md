@@ -47,6 +47,7 @@ curl -X POST http://localhost:8080/nfa_xxx.../search \
 | `PORT` | `8080` | 监听端口 |
 | `DATA_DIR` | `./data` | 数据存储目录 |
 | `QUOTA_MB` | `0`（不限） | 每个 Token 的磁盘配额（MB） |
+| `TRASH_DAYS` | `30` | 软删除保留天数（0=立即删除） |
 
 ## API
 
@@ -62,6 +63,7 @@ curl -X POST http://localhost:8080/nfa_xxx.../search \
 | `/{token}/list` | `path` | 列出目录内容 | 200 |
 | `/{token}/tree` | `path` | 递归目录树 | 200 |
 | `/{token}/search` | `query`/`q`, `path` | 全文搜索（可限定目录） | 200 |
+| `/{token}/destroy` | — | 销毁 Token（软删除） | 200 |
 
 错误状态码：`400` 缺少参数、`401` Token 无效、`413` 请求体过大、`507` 超出配额。
 

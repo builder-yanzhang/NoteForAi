@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"noteforai/index"
 	"noteforai/store"
@@ -350,5 +351,48 @@ func TestRevert(t *testing.T) {
 	}
 	if entries[0].Message != "revert file" {
 		t.Errorf("expected revert commit, got %q", entries[0].Message)
+	}
+}
+
+func TestDestroyToken(t *testing.T) {
+	s, tok, cleanup := setupWithToken(t)
+	defer cleanup()
+
+	s.Write(tok+"/note1", []byte("hello"))
+	s.Write(tok+"/note2", []byte("world"))
+
+	results, _ := s.Search("hello", tok+"/")
+	if len(results) != 1 {
+		t.Fatalf("expected 1 search result before destroy, got %d", len(results))
+	}
+
+	s.DestroyToken(tok)
+
+	results, _ = s.Search("hello", tok+"/")
+	if len(results) != 0 {
+		t.Errorf("expected 0 search results after destroy, got %d", len(results))
+	}
+}
+
+func TestCleanTrash(t *testing.T) {
+	s, _, cleanup := setupWithToken(t)
+	defer cleanup()
+
+	// Old .deleted. directory (timestamp 0 = 1970)
+	oldDir := filepath.Join(s.BasePath(), "nfa_fake.deleted.0")
+	os.MkdirAll(oldDir, 0755)
+	os.WriteFile(filepath.Join(oldDir, "file"), []byte("old"), 0644)
+
+	// Recent .deleted. directory
+	recentDir := fmt.Sprintf("%s/nfa_fake2.deleted.%d", s.BasePath(), time.Now().Unix())
+	os.MkdirAll(recentDir, 0755)
+
+	s.CleanTrash(30)
+
+	if _, err := os.Stat(oldDir); err == nil {
+		t.Error("old trash directory should have been removed")
+	}
+	if _, err := os.Stat(recentDir); err != nil {
+		t.Error("recent trash directory should still exist")
 	}
 }

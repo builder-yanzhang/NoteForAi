@@ -63,6 +63,7 @@ func NewHTTPServer(s *store.Store, dataDir string) *HTTPServer {
 	srv.mux.HandleFunc("/{token}/history/{path...}", srv.requireToken(srv.history))
 	srv.mux.HandleFunc("/{token}/diff", srv.requireToken(srv.diff))
 	srv.mux.HandleFunc("/{token}/revert", srv.requireToken(srv.revert))
+	srv.mux.HandleFunc("/{token}/destroy", srv.requireToken(srv.destroy))
 
 	return srv
 }
@@ -394,6 +395,16 @@ func (h *HTTPServer) revert(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *HTTPServer) destroy(w http.ResponseWriter, r *http.Request) {
+	t := r.PathValue("token")
+	if err := token.Destroy(h.dataDir, t); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.store.DestroyToken(t)
 	w.WriteHeader(http.StatusOK)
 }
 

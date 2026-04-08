@@ -16,7 +16,7 @@ go test ./... -v -race           # 运行测试（带竞争检测）
 go vet ./...                     # 静态检查
 ```
 
-环境变量: `PORT` (默认 8080), `DATA_DIR` (默认 ./data), `QUOTA_MB` (默认 0=不限，单位 MB)
+环境变量: `PORT` (默认 8080), `DATA_DIR` (默认 ./data), `QUOTA_MB` (默认 0=不限，单位 MB), `TRASH_DAYS` (默认 30，软删除保留天数)
 
 Docker: `docker compose up --build`
 
@@ -49,6 +49,7 @@ Token 在 URL 路径中，所有接口支持 GET（query param）和 POST（JSON
 /{token}/list    path=                列目录（200）
 /{token}/tree    path=                目录树（200）
 /{token}/search  query=|q=, path=     全文搜索（200）
+/{token}/destroy                      销毁 Token（软删除，200）
 ```
 
 错误码：400 缺参数、401 Token 无效、413 请求体过大/超配额、507 磁盘配额超限。

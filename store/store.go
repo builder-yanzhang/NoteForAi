@@ -6,8 +6,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	git "github.com/go-git/go-git/v5"
 )
@@ -407,6 +409,79 @@ func (s *Store) Revert(path string, commitHash string) error {
 	}
 	s.gitCommit(token, rel, "revert")
 	return nil
+}
+
+// BasePath returns the store's base path.
+func (s *Store) BasePath() string {
+	return s.basePath
+}
+
+// CleanTrash removes .deleted. directories older than the given retention days.
+func (s *Store) CleanTrash(retentionDays int) {
+	entries, err := os.ReadDir(s.basePath)
+	if err != nil {
+		log.Printf("trash cleaner: read dir error: %v", err)
+		return
+	}
+	cutoff := time.Now().Unix() - int64(retentionDays)*86400
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		idx := strings.LastIndex(name, ".deleted.")
+		if idx == -1 {
+			continue
+		}
+		tsStr := name[idx+len(".deleted."):]
+		ts, err := strconv.ParseInt(tsStr, 10, 64)
+		if err != nil {
+			continue
+		}
+		if ts < cutoff {
+			dir := filepath.Join(s.basePath, name)
+			if err := os.RemoveAll(dir); err != nil {
+				log.Printf("trash cleaner: remove error: %v", err)
+			} else {
+				log.Printf("trash cleaner: removed %s", name)
+			}
+		}
+	}
+}
+
+// StartTrashCleaner runs CleanTrash on startup and then daily.
+func (s *Store) StartTrashCleaner(retentionDays int) {
+	s.CleanTrash(retentionDays)
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			s.CleanTrash(retentionDays)
+		}
+	}()
+}
+
+// DestroyToken clears all index entries and in-memory caches for a token.
+func (s *Store) DestroyToken(token string) {
+	if err := s.index.RemoveByPrefix(token + "/"); err != nil {
+		log.Printf("index cleanup error for %s: %v", token, err)
+	}
+
+	s.usageMu.Lock()
+	delete(s.usage, token)
+	s.usageMu.Unlock()
+
+	s.mu.Lock()
+	for k := range s.locks {
+		if strings.HasPrefix(k, filepath.Join(s.basePath, token)) {
+			delete(s.locks, k)
+		}
+	}
+	s.mu.Unlock()
+
+	s.repoMu.Lock()
+	delete(s.repos, token)
+	s.repoMu.Unlock()
 }
 
 // isText returns true if content appears to be text (no null bytes in first 512 bytes).

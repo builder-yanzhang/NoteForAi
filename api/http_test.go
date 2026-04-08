@@ -461,3 +461,33 @@ func TestRevertEndpoint(t *testing.T) {
 		t.Errorf("got %q, want %q", body, "original")
 	}
 }
+
+// --- Destroy Tests ---
+
+func TestDestroyEndpoint(t *testing.T) {
+	env := setup(t)
+	tok := createToken(t, env)
+
+	postJSON(env.ts.URL+"/"+tok+"/write", `{"path":"note","content":"hello"}`)
+
+	resp, err := postJSON(env.ts.URL+"/"+tok+"/destroy", `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("destroy status = %d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp, _ = postJSON(env.ts.URL+"/"+tok+"/read", `{"path":"note"}`)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("read after destroy status = %d, want 401", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp, _ = postJSON(env.ts.URL+"/"+tok+"/write", `{"path":"note","content":"new"}`)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("write after destroy status = %d, want 401", resp.StatusCode)
+	}
+	resp.Body.Close()
+}

@@ -2,10 +2,12 @@ package token
 
 import (
 	"crypto/rand"
+	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const (
@@ -48,14 +50,31 @@ func Exists(dataDir string, t string) bool {
 }
 
 // Create generates a new token and creates its storage directory.
+// Retries if the generated token already exists (extremely unlikely).
 func Create(dataDir string) (string, error) {
-	t, err := Generate()
-	if err != nil {
-		return "", err
+	for range 10 {
+		t, err := Generate()
+		if err != nil {
+			return "", err
+		}
+		dir := filepath.Join(dataDir, "files", t)
+		if Exists(dataDir, t) {
+			continue
+		}
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return "", err
+		}
+		return t, nil
 	}
-	dir := filepath.Join(dataDir, "files", t)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return "", err
+	return "", fmt.Errorf("failed to generate unique token")
+}
+
+// Destroy soft-deletes a token by renaming its directory with a .deleted.{timestamp} suffix.
+func Destroy(dataDir string, t string) error {
+	src := filepath.Join(dataDir, "files", t)
+	if _, err := os.Stat(src); err != nil {
+		return fmt.Errorf("token not found: %s", t)
 	}
-	return t, nil
+	dst := fmt.Sprintf("%s.deleted.%d", src, time.Now().Unix())
+	return os.Rename(src, dst)
 }
