@@ -45,7 +45,9 @@ append 更新 index.md 的"最近动态"部分，记录本次要点。
 - write(path, content) — 新建或覆盖
 - append(path, content) — 追加到末尾
 - search(query) — 全文搜索
-- history(path) + revert(path, commit) — 版本回溯
+- history(path) — 查看历史版本列表（附 hash）
+- diff(path, commit) — 查看某次变更内容（回溯前确认）
+- revert(path, commit) — 恢复到指定版本
 - deleted() — 查看可恢复的已删除文件`),
 	)
 
