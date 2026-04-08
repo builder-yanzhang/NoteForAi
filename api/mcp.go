@@ -38,7 +38,7 @@ func NewMCPServer(s *store.Store, tok string) *server.MCPServer {
 - 新建用 write，补充用 append，信息有变化用 write 覆盖
 
 ## 对话结束前
-append 更新 index.md 的"最近动态"部分，记录本次要点。
+append 更新 index.md 的"最近动态"（### YYYY-MM-DD，3-5 条要点，每条一句话）。
 
 ## 工具速查
 - read("index.md") — 启动必读
