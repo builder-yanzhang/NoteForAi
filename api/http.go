@@ -196,7 +196,7 @@ func initTokenFiles(s *store.Store, tok, baseURL string) {
 			path: tok + "/index.md",
 			content: `# 我的笔记空间 · 索引
 
-> AI 在每次对话开始时读取此文件以快速了解上下文，对话结束前请更新"最近动态"。
+> AI 在每次对话开始时读取此文件。若"关于我"为空，请主动询问用户姓名和职业并记录；对话结束前更新"最近动态"。
 
 ## 👤 关于我
 （待 AI 记录 — 姓名、职业、技能、背景等）
