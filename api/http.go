@@ -12,10 +12,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"noteforai/store"
 	"noteforai/token"
+
+	"github.com/mark3labs/mcp-go/server"
 )
 
 const maxBodySize = 10 << 20 // 10 MB
@@ -30,20 +33,25 @@ func (sr *statusRecorder) WriteHeader(code int) {
 	sr.ResponseWriter.WriteHeader(code)
 }
 
-//go:embed ui/index.html
+//go:embed ui/index.html ui/dashboard.html ui/i18n.js
 var uiFS embed.FS
 
 type HTTPServer struct {
-	store   *store.Store
-	dataDir string
-	mux     *http.ServeMux
+	store      *store.Store
+	dataDir    string
+	mux        *http.ServeMux
+	mcpMu      sync.Mutex
+	mcpServers map[string]*server.StreamableHTTPServer
 }
 
 func NewHTTPServer(s *store.Store, dataDir string) *HTTPServer {
-	srv := &HTTPServer{store: s, dataDir: dataDir, mux: http.NewServeMux()}
+	srv := &HTTPServer{store: s, dataDir: dataDir, mux: http.NewServeMux(), mcpServers: make(map[string]*server.StreamableHTTPServer)}
 
 	// UI
 	srv.mux.HandleFunc("GET /{$}", srv.serveUI)
+	srv.mux.HandleFunc("GET /index.html", srv.serveUI)
+	srv.mux.HandleFunc("GET /dashboard.html", srv.serveDashboard)
+	srv.mux.HandleFunc("GET /i18n.js", srv.serveI18n)
 
 	// Token creation — no auth required
 	srv.mux.HandleFunc("/create_token", srv.createToken)
@@ -63,7 +71,11 @@ func NewHTTPServer(s *store.Store, dataDir string) *HTTPServer {
 	srv.mux.HandleFunc("/{token}/history/{path...}", srv.requireToken(srv.history))
 	srv.mux.HandleFunc("/{token}/diff", srv.requireToken(srv.diff))
 	srv.mux.HandleFunc("/{token}/revert", srv.requireToken(srv.revert))
+	srv.mux.HandleFunc("/{token}/deleted", srv.requireToken(srv.deleted))
 	srv.mux.HandleFunc("/{token}/destroy", srv.requireToken(srv.destroy))
+
+	// MCP Streamable HTTP
+	srv.mux.HandleFunc("/{token}/mcp", srv.requireToken(srv.serveMCP))
 
 	return srv
 }
@@ -71,6 +83,19 @@ func NewHTTPServer(s *store.Store, dataDir string) *HTTPServer {
 func (h *HTTPServer) serveUI(w http.ResponseWriter, r *http.Request) {
 	data, _ := uiFS.ReadFile("ui/index.html")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(data)
+}
+
+func (h *HTTPServer) serveDashboard(w http.ResponseWriter, r *http.Request) {
+	data, _ := uiFS.ReadFile("ui/dashboard.html")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(data)
+}
+
+func (h *HTTPServer) serveI18n(w http.ResponseWriter, r *http.Request) {
+	data, _ := uiFS.ReadFile("ui/i18n.js")
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
 	w.Write(data)
 }
 
@@ -398,6 +423,26 @@ func (h *HTTPServer) revert(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+func (h *HTTPServer) deleted(w http.ResponseWriter, r *http.Request) {
+	body := parseBody(r)
+	limit := 50
+	if s := getParam(r, body, "limit"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	t := r.PathValue("token")
+	entries, err := h.store.Deleted(t, limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if entries == nil {
+		entries = []store.DeletedEntry{}
+	}
+	writeJSON(w, entries)
+}
+
 func (h *HTTPServer) destroy(w http.ResponseWriter, r *http.Request) {
 	t := r.PathValue("token")
 	if err := token.Destroy(h.dataDir, t); err != nil {
@@ -405,7 +450,27 @@ func (h *HTTPServer) destroy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.store.DestroyToken(t)
+	h.mcpMu.Lock()
+	delete(h.mcpServers, t)
+	h.mcpMu.Unlock()
 	w.WriteHeader(http.StatusOK)
+}
+
+func (h *HTTPServer) getOrCreateMCP(tok string) *server.StreamableHTTPServer {
+	h.mcpMu.Lock()
+	defer h.mcpMu.Unlock()
+	if s, ok := h.mcpServers[tok]; ok {
+		return s
+	}
+	mcpSrv := NewMCPServer(h.store, tok)
+	s := server.NewStreamableHTTPServer(mcpSrv, server.WithStateLess(true))
+	h.mcpServers[tok] = s
+	return s
+}
+
+func (h *HTTPServer) serveMCP(w http.ResponseWriter, r *http.Request) {
+	tok := r.PathValue("token")
+	h.getOrCreateMCP(tok).ServeHTTP(w, r)
 }
 
 func isText(data []byte) bool {

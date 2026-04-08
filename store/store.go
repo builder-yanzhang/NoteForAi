@@ -47,8 +47,9 @@ type Store struct {
 	quota    int64
 	usageMu  sync.Mutex
 	usage    map[string]int64
-	repoMu  sync.Mutex
-	repos   map[string]*git.Repository
+	repoMu   sync.Mutex
+	repos    map[string]*git.Repository
+	gitLocks map[string]*sync.Mutex // per-repo lock for git write operations
 }
 
 func New(basePath string, index Indexer) *Store {
@@ -58,7 +59,8 @@ func New(basePath string, index Indexer) *Store {
 		index:    index,
 		locks:    make(map[string]*sync.Mutex),
 		usage:    make(map[string]int64),
-		repos:   make(map[string]*git.Repository),
+		repos:    make(map[string]*git.Repository),
+		gitLocks: make(map[string]*sync.Mutex),
 	}
 }
 
@@ -224,12 +226,19 @@ func (s *Store) Delete(path string) error {
 		return err
 	}
 
-	// Calculate size to reclaim
+	// Calculate size to reclaim and collect file paths for git
 	var size int64
+	var deletedFiles []string // relative to token dir, for per-file git commits
+	tok, rel := tokenAndRel(path)
+	tokenBase := filepath.Join(s.basePath, tok)
+
 	if info.IsDir() {
-		filepath.Walk(full, func(_ string, fi os.FileInfo, err error) error {
-			if err == nil && !fi.IsDir() {
+		filepath.Walk(full, func(p string, fi os.FileInfo, err error) error {
+			if err == nil && !fi.IsDir() && !strings.Contains(p, ".git") {
 				size += fi.Size()
+				if r, relErr := filepath.Rel(tokenBase, p); relErr == nil && r != "." {
+					deletedFiles = append(deletedFiles, filepath.ToSlash(r))
+				}
 			}
 			return nil
 		})
@@ -237,9 +246,10 @@ func (s *Store) Delete(path string) error {
 	} else {
 		size = info.Size()
 		s.index.Remove(s.relativePath(full))
+		if r, relErr := filepath.Rel(tokenBase, full); relErr == nil && r != "." {
+			deletedFiles = append(deletedFiles, filepath.ToSlash(r))
+		}
 	}
-
-	isDir := info.IsDir()
 
 	if err := os.RemoveAll(full); err != nil {
 		return err
@@ -247,13 +257,8 @@ func (s *Store) Delete(path string) error {
 
 	s.addUsage(token, -size)
 
-	tok, rel := tokenAndRel(path)
-	if rel != "" {
-		if isDir {
-			s.gitCommitAll(tok, fmt.Sprintf("delete %s/", rel))
-		} else {
-			s.gitCommit(tok, rel, "delete")
-		}
+	if rel != "" && len(deletedFiles) > 0 {
+		s.gitCommitEach(tok, deletedFiles, "delete")
 	}
 	return nil
 }
@@ -283,11 +288,11 @@ func (s *Store) Append(path string, content []byte) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
 	if _, err := f.Write(content); err != nil {
+		f.Close()
 		return err
 	}
+	f.Close()
 
 	s.addUsage(token, appendSize)
 
@@ -383,6 +388,13 @@ func (s *Store) History(path string, limit int) ([]HistoryEntry, error) {
 	if rel == "" {
 		return nil, fmt.Errorf("path required")
 	}
+	// Auto-detect: if path resolves to a directory, show folder history
+	full, err := s.resolve(path)
+	if err == nil {
+		if info, statErr := os.Stat(full); statErr == nil && info.IsDir() {
+			return s.gitFolderHistory(token, rel, limit)
+		}
+	}
 	return s.gitHistory(token, rel, limit)
 }
 
@@ -409,6 +421,11 @@ func (s *Store) Revert(path string, commitHash string) error {
 	}
 	s.gitCommit(token, rel, "revert")
 	return nil
+}
+
+// Deleted returns files that have been deleted for a given token.
+func (s *Store) Deleted(token string, limit int) ([]DeletedEntry, error) {
+	return s.gitDeleted(token, limit)
 }
 
 // BasePath returns the store's base path.
@@ -481,6 +498,7 @@ func (s *Store) DestroyToken(token string) {
 
 	s.repoMu.Lock()
 	delete(s.repos, token)
+	delete(s.gitLocks, token)
 	s.repoMu.Unlock()
 }
 

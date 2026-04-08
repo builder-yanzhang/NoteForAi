@@ -3,8 +3,10 @@ package store
 import (
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	git "github.com/go-git/go-git/v5"
@@ -19,9 +21,25 @@ type HistoryEntry struct {
 	Message string `json:"message"`
 }
 
-var author = &object.Signature{
+// DeletedEntry represents a file that was deleted and can be restored.
+type DeletedEntry struct {
+	Path        string `json:"path"`
+	DeleteHash  string `json:"delete_hash"`
+	RestoreHash string `json:"restore_hash"`
+	Date        string `json:"date"`
+}
+
+var authorInfo = &object.Signature{
 	Name:  "NoteForAI",
 	Email: "noreply@noteforai",
+}
+
+func newAuthor() *object.Signature {
+	return &object.Signature{
+		Name:  authorInfo.Name,
+		Email: authorInfo.Email,
+		When:  time.Now(),
+	}
 }
 
 // getRepo returns the git repo for a token, lazily initializing if needed.
@@ -46,6 +64,17 @@ func (s *Store) getRepo(token string) *git.Repository {
 	return repo
 }
 
+// gitWriteLock returns a per-repo mutex for serializing git write operations.
+// This prevents concurrent Add+Commit from corrupting the staging area.
+func (s *Store) gitWriteLock(token string) *sync.Mutex {
+	s.repoMu.Lock()
+	defer s.repoMu.Unlock()
+	if _, ok := s.gitLocks[token]; !ok {
+		s.gitLocks[token] = &sync.Mutex{}
+	}
+	return s.gitLocks[token]
+}
+
 // tokenAndRel splits a store path like "nfa_xxx/dir/file" into token and relative path.
 func tokenAndRel(path string) (token string, rel string) {
 	clean := filepath.Clean(path)
@@ -56,8 +85,12 @@ func tokenAndRel(path string) (token string, rel string) {
 	return parts[0], ""
 }
 
-// gitCommit stages the file at relPath (relative to token dir) and commits.
+// gitCommit stages the file at relPath and commits with a per-repo lock.
 func (s *Store) gitCommit(token, relPath, action string) {
+	lk := s.gitWriteLock(token)
+	lk.Lock()
+	defer lk.Unlock()
+
 	repo := s.getRepo(token)
 	if repo == nil {
 		return
@@ -72,19 +105,20 @@ func (s *Store) gitCommit(token, relPath, action string) {
 		return
 	}
 	_, err = w.Commit(fmt.Sprintf("%s %s", action, relPath), &git.CommitOptions{
-		Author: &object.Signature{
-			Name:  author.Name,
-			Email: author.Email,
-			When:  time.Now(),
-		},
+		Author: newAuthor(),
 	})
 	if err != nil {
 		log.Printf("git commit error: %v", err)
 	}
 }
 
-// gitCommitAll stages all changes and commits (used for directory deletes).
-func (s *Store) gitCommitAll(token, message string) {
+// gitCommitEach stages and commits each file individually under the per-repo lock.
+// Used for directory deletes so each file gets its own "delete path" commit.
+func (s *Store) gitCommitEach(token string, relPaths []string, action string) {
+	lk := s.gitWriteLock(token)
+	lk.Lock()
+	defer lk.Unlock()
+
 	repo := s.getRepo(token)
 	if repo == nil {
 		return
@@ -94,19 +128,17 @@ func (s *Store) gitCommitAll(token, message string) {
 		log.Printf("git worktree error: %v", err)
 		return
 	}
-	if _, err := w.Add("."); err != nil {
-		log.Printf("git add all error: %v", err)
-		return
-	}
-	_, err = w.Commit(message, &git.CommitOptions{
-		Author: &object.Signature{
-			Name:  author.Name,
-			Email: author.Email,
-			When:  time.Now(),
-		},
-	})
-	if err != nil {
-		log.Printf("git commit error: %v", err)
+	for _, p := range relPaths {
+		if _, err := w.Add(p); err != nil {
+			log.Printf("git add error for %s: %v", p, err)
+			continue
+		}
+		_, err = w.Commit(fmt.Sprintf("%s %s", action, p), &git.CommitOptions{
+			Author: newAuthor(),
+		})
+		if err != nil {
+			log.Printf("git commit error for %s: %v", p, err)
+		}
 	}
 }
 
@@ -132,6 +164,44 @@ func (s *Store) gitHistory(token, relPath string, limit int) ([]HistoryEntry, er
 			Date:    c.Author.When.Format(time.RFC3339),
 			Message: strings.TrimSpace(c.Message),
 		})
+		return nil
+	})
+	return entries, nil
+}
+
+// gitFolderHistory returns commit history for all files under a directory prefix.
+// Parses commit messages (format: "{action} {relPath}") to filter by prefix.
+func (s *Store) gitFolderHistory(token, dirPrefix string, limit int) ([]HistoryEntry, error) {
+	repo := s.getRepo(token)
+	if repo == nil {
+		return nil, fmt.Errorf("git not initialized")
+	}
+	iter, err := repo.Log(&git.LogOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+
+	prefix := dirPrefix + "/"
+	var entries []HistoryEntry
+	_ = iter.ForEach(func(c *object.Commit) error {
+		if len(entries) >= limit {
+			return fmt.Errorf("stop")
+		}
+		msg := strings.TrimSpace(c.Message)
+		// Extract path from "{action} {relPath}" format
+		idx := strings.Index(msg, " ")
+		if idx == -1 {
+			return nil
+		}
+		commitPath := msg[idx+1:]
+		if strings.HasPrefix(commitPath, prefix) {
+			entries = append(entries, HistoryEntry{
+				Hash:    c.Hash.String(),
+				Date:    c.Author.When.Format(time.RFC3339),
+				Message: msg,
+			})
+		}
 		return nil
 	})
 	return entries, nil
@@ -203,6 +273,102 @@ func (s *Store) gitGetFileAtCommit(token, relPath, commitHash string) ([]byte, e
 	return []byte(content), nil
 }
 
+// gitDeleted scans git log for delete commits and returns files that are still deleted.
+// For directory-level delete commits (legacy), it expands into individual files from the parent tree.
+func (s *Store) gitDeleted(token string, limit int) ([]DeletedEntry, error) {
+	repo := s.getRepo(token)
+	if repo == nil {
+		return nil, fmt.Errorf("git not initialized")
+	}
+	iter, err := repo.Log(&git.LogOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+
+	var entries []DeletedEntry
+	seen := make(map[string]bool)
+	basePath := filepath.Join(s.basePath, token)
+
+	_ = iter.ForEach(func(c *object.Commit) error {
+		if len(entries) >= limit {
+			return fmt.Errorf("stop")
+		}
+		msg := strings.TrimSpace(c.Message)
+		if !strings.HasPrefix(msg, "delete ") {
+			return nil
+		}
+		rawPath := strings.TrimPrefix(msg, "delete ")
+		isDir := strings.HasSuffix(rawPath, "/")
+		relPath := strings.TrimSuffix(rawPath, "/")
+
+		dateStr := c.Author.When.Format(time.RFC3339)
+		deleteHash := c.Hash.String()
+		restoreHash := ""
+		if c.NumParents() > 0 {
+			if parent, err := c.Parent(0); err == nil {
+				restoreHash = parent.Hash.String()
+			}
+		}
+
+		if isDir && restoreHash != "" {
+			// Directory delete: expand into individual files from parent tree
+			parentCommit, err := repo.CommitObject(plumbing.NewHash(restoreHash))
+			if err != nil {
+				return nil
+			}
+			parentTree, err := parentCommit.Tree()
+			if err != nil {
+				return nil
+			}
+			// Walk the subtree to find all files under the deleted directory
+			subtree, err := parentTree.Tree(relPath)
+			if err != nil {
+				return nil
+			}
+			subtree.Files().ForEach(func(f *object.File) error {
+				if len(entries) >= limit {
+					return fmt.Errorf("stop")
+				}
+				filePath := relPath + "/" + f.Name
+				if seen[filePath] {
+					return nil
+				}
+				seen[filePath] = true
+				fullPath := filepath.Join(basePath, filePath)
+				if _, err := os.Stat(fullPath); err == nil {
+					return nil // file exists again, skip
+				}
+				entries = append(entries, DeletedEntry{
+					Path:        filePath,
+					DeleteHash:  deleteHash,
+					RestoreHash: restoreHash,
+					Date:        dateStr,
+				})
+				return nil
+			})
+		} else {
+			// Single file delete
+			if seen[relPath] {
+				return nil
+			}
+			seen[relPath] = true
+			fullPath := filepath.Join(basePath, relPath)
+			if _, err := os.Stat(fullPath); err == nil {
+				return nil
+			}
+			entries = append(entries, DeletedEntry{
+				Path:        relPath,
+				DeleteHash:  deleteHash,
+				RestoreHash: restoreHash,
+				Date:        dateStr,
+			})
+		}
+		return nil
+	})
+	return entries, nil
+}
+
 // InitRepo initializes a git repo for a token directory (called from token.Create).
 func InitRepo(basePath, token string) {
 	repoPath := filepath.Join(basePath, token)
@@ -210,4 +376,3 @@ func InitRepo(basePath, token string) {
 		log.Printf("git init error for %s: %v", token, err)
 	}
 }
-

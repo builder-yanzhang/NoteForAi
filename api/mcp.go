@@ -17,65 +17,100 @@ import (
 func NewMCPServer(s *store.Store, tok string) *server.MCPServer {
 	srv := server.NewMCPServer("NoteForAI", "1.0.0",
 		server.WithToolCapabilities(true),
+		server.WithInstructions(`NoteForAI — AI 专属持久记忆系统。你拥有一个笔记空间，可以跨对话保存和检索信息。
+
+## 使用规范
+- 所有文件必须使用 .md 后缀，内容使用 Markdown 格式，首行为 # 标题
+- 路径使用 / 分隔，如 "工作/项目A/进展.md"
+- 建议按主题组织目录结构，如 个人/、工作/、项目/
+
+## 工作流程
+1. 每次对话开始，先调用 tree() 回顾已有笔记结构
+2. 按需 read() 相关笔记，利用已有信息回应用户
+3. 对话中出现有价值的信息时，主动 write() 或 append() 保存
+4. 信息变更时用 write() 覆盖，补充信息用 append()
+
+## 工具概览
+- write(path, content) — 新建或覆盖笔记
+- read(path) — 读取笔记内容
+- append(path, content) — 追加内容到笔记末尾
+- delete(path) — 删除文件或目录（可通过 deleted + revert 恢复）
+- list(path) — 列出目录内容
+- tree(path) — 递归显示目录树
+- search(query, path) — 全文搜索（支持中英文）
+- history(path, limit) — 查看版本历史
+- diff(path, commit) — 查看某次变更的详情
+- revert(path, commit) — 恢复到指定版本
+- deleted(limit) — 列出已删除的可恢复文件
+
+## 注意事项
+- 像一个记得一切的老朋友，主动记录，宁多勿漏
+- 每条笔记标注日期，写入后一句话告知用户
+- 用合理的目录结构自行组织信息`),
 	)
 
 	p := &mcpPrefix{store: s, token: tok}
 
 	srv.AddTool(mcp.NewTool("write",
-		mcp.WithDescription("Write content to a file. Creates parent directories automatically. Overwrites if exists."),
-		mcp.WithString("path", mcp.Required(), mcp.Description("File path, e.g. 'project/notes/todo'")),
-		mcp.WithString("content", mcp.Required(), mcp.Description("File content")),
+		mcp.WithDescription("Write (create or overwrite) a Markdown note. Parent directories are created automatically. Every write is versioned by Git.\n\n写入笔记，自动创建目录，每次写入自动 Git 版本快照。\n\nConventions:\n- Use .md suffix: 'user/profile.md'\n- Start content with '# Title'\n- Use '/' as path separator"),
+		mcp.WithString("path", mcp.Required(), mcp.Description("File path with .md suffix, e.g. '个人/基本信息.md' or 'work/todo.md'")),
+		mcp.WithString("content", mcp.Required(), mcp.Description("Markdown content. Start with '# Title' heading.")),
 	), p.write)
 
 	srv.AddTool(mcp.NewTool("read",
-		mcp.WithDescription("Read file content."),
-		mcp.WithString("path", mcp.Required(), mcp.Description("File path")),
+		mcp.WithDescription("Read the content of a note. Returns the raw Markdown text.\n\n读取笔记内容，返回原始 Markdown 文本。"),
+		mcp.WithString("path", mcp.Required(), mcp.Description("File path, e.g. '个人/基本信息.md'")),
 	), p.read)
 
 	srv.AddTool(mcp.NewTool("delete",
-		mcp.WithDescription("Delete a file or directory."),
-		mcp.WithString("path", mcp.Required(), mcp.Description("File or directory path")),
+		mcp.WithDescription("Delete a file or entire directory. Deleted files can be recovered via 'deleted' + 'revert' tools.\n\n删除文件或目录，可通过 deleted + revert 恢复。"),
+		mcp.WithString("path", mcp.Required(), mcp.Description("File or directory path to delete")),
 	), p.delete)
 
 	srv.AddTool(mcp.NewTool("append",
-		mcp.WithDescription("Append content to the end of a file. Creates the file if it does not exist."),
-		mcp.WithString("path", mcp.Required(), mcp.Description("File path")),
-		mcp.WithString("content", mcp.Required(), mcp.Description("Content to append")),
+		mcp.WithDescription("Append content to the end of a note. Creates the file if it doesn't exist. Auto-prepends a newline.\n\n追加内容到笔记末尾，文件不存在则自动创建，自动换行。"),
+		mcp.WithString("path", mcp.Required(), mcp.Description("File path, e.g. '日志/2025.md'")),
+		mcp.WithString("content", mcp.Required(), mcp.Description("Content to append (newline is auto-prepended)")),
 	), p.append)
 
 	srv.AddTool(mcp.NewTool("list",
-		mcp.WithDescription("List files and subdirectories in a directory."),
-		mcp.WithString("path", mcp.Description("Directory path. Defaults to root.")),
+		mcp.WithDescription("List files and subdirectories in a directory. Directories have '/' suffix.\n\n列出目录内容，目录名以 '/' 结尾。"),
+		mcp.WithString("path", mcp.Description("Directory path. Leave empty or '.' for root directory.")),
 	), p.list)
 
 	srv.AddTool(mcp.NewTool("tree",
-		mcp.WithDescription("Show the full directory tree recursively."),
-		mcp.WithString("path", mcp.Description("Directory path. Defaults to root.")),
+		mcp.WithDescription("Show the full directory tree recursively. IMPORTANT: Call this at the START of every conversation to review existing notes.\n\n递归显示目录树。重要：每次对话开始时调用此工具回顾已有笔记。"),
+		mcp.WithString("path", mcp.Description("Directory path. Leave empty for full tree from root.")),
 	), p.tree)
 
 	srv.AddTool(mcp.NewTool("search",
-		mcp.WithDescription("Full-text search across all text files. Returns matching file paths with content snippets."),
-		mcp.WithString("query", mcp.Required(), mcp.Description("Search text")),
-		mcp.WithString("path", mcp.Description("Limit search to this directory path")),
+		mcp.WithDescription("Full-text search across all notes. Supports Chinese (CJK bigram) and English. Returns paths with snippets.\n\n全文搜索，支持中英文分词，返回匹配路径和摘要。"),
+		mcp.WithString("query", mcp.Required(), mcp.Description("Search keywords, e.g. '量化交易' or 'API design'")),
+		mcp.WithString("path", mcp.Description("Limit search to this directory prefix, e.g. '工作/'")),
 	), p.search)
 
 	srv.AddTool(mcp.NewTool("history",
-		mcp.WithDescription("Show version history (git commits) for a file."),
-		mcp.WithString("path", mcp.Required(), mcp.Description("File path")),
-		mcp.WithNumber("limit", mcp.Description("Max entries to return (default 20)")),
+		mcp.WithDescription("Show Git version history for a file or directory. Each entry has hash, date, and message. Use hash with 'diff' or 'revert'.\n\n查看 Git 版本历史。用返回的 hash 配合 diff 或 revert 使用。"),
+		mcp.WithString("path", mcp.Required(), mcp.Description("File or directory path, e.g. '个人/基本信息.md' or '个人/'")),
+		mcp.WithNumber("limit", mcp.Description("Max entries to return. Default 20.")),
 	), p.history)
 
 	srv.AddTool(mcp.NewTool("diff",
-		mcp.WithDescription("Show diff of a specific commit for a file."),
-		mcp.WithString("path", mcp.Required(), mcp.Description("File path")),
-		mcp.WithString("commit", mcp.Required(), mcp.Description("Commit hash")),
+		mcp.WithDescription("Show the unified diff of a specific Git commit for a file. Shows added (+) and removed (-) lines.\n\n查看某次提交的变更详情，显示增删行。"),
+		mcp.WithString("path", mcp.Required(), mcp.Description("File path, e.g. '个人/基本信息.md'")),
+		mcp.WithString("commit", mcp.Required(), mcp.Description("Full or partial commit hash from history output")),
 	), p.diff)
 
 	srv.AddTool(mcp.NewTool("revert",
-		mcp.WithDescription("Revert a file to its content at a specific commit."),
-		mcp.WithString("path", mcp.Required(), mcp.Description("File path")),
-		mcp.WithString("commit", mcp.Required(), mcp.Description("Commit hash")),
+		mcp.WithDescription("Restore a file to its content at a specific Git commit. Non-destructive (writes as new version).\n\n恢复文件到指定版本，非破坏性操作（写入为新版本）。"),
+		mcp.WithString("path", mcp.Required(), mcp.Description("File path to restore, e.g. '个人/旧笔记.md'")),
+		mcp.WithString("commit", mcp.Required(), mcp.Description("Commit hash to restore from (use restore_hash from 'deleted' tool for deleted files)")),
 	), p.revert)
+
+	srv.AddTool(mcp.NewTool("deleted",
+		mcp.WithDescription("List deleted files that can be restored. Each entry has path, date, and restore_hash. Use revert(path, restore_hash) to recover.\n\n列出可恢复的已删除文件。用 revert(path, restore_hash) 恢复。"),
+		mcp.WithNumber("limit", mcp.Description("Max results. Default 50.")),
+	), p.deleted)
 
 	return srv
 }
@@ -243,4 +278,23 @@ func (m *mcpPrefix) revert(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	return mcp.NewToolResultText(fmt.Sprintf("Reverted %s to %s", path, commit[:8])), nil
+}
+
+func (m *mcpPrefix) deleted(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	limit := 50
+	if l, ok := req.GetArguments()["limit"].(float64); ok && l > 0 {
+		limit = int(l)
+	}
+	entries, err := m.store.Deleted(m.token, limit)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	if len(entries) == 0 {
+		return mcp.NewToolResultText("No deleted files."), nil
+	}
+	var sb strings.Builder
+	for _, e := range entries {
+		sb.WriteString(fmt.Sprintf("%s  deleted %s  restore: %s\n", e.Path, e.Date, e.RestoreHash[:8]))
+	}
+	return mcp.NewToolResultText(sb.String()), nil
 }
