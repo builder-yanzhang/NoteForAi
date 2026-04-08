@@ -170,7 +170,460 @@ func (h *HTTPServer) createToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Derive base URL from request for tutorial files
+	scheme := "https"
+	if r.TLS == nil && r.Header.Get("X-Forwarded-Proto") == "" {
+		scheme = "http"
+	} else if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		scheme = proto
+	}
+	baseURL := scheme + "://" + r.Host
+	initTokenFiles(h.store, t, baseURL)
 	writeJSON(w, map[string]string{"token": t})
+}
+
+// initTokenFiles writes tutorial and index files into a newly-created token space.
+func initTokenFiles(s *store.Store, tok, baseURL string) {
+	type file struct {
+		path    string
+		content string
+	}
+
+	endpoint := baseURL + "/" + tok
+
+	files := []file{
+		{
+			path: tok + "/index.md",
+			content: `# 我的笔记空间 · 索引
+
+> AI 在每次对话开始时读取此文件以快速了解上下文，对话结束前请更新"最近动态"。
+
+## 👤 关于我
+（待 AI 记录 — 姓名、职业、技能、背景等）
+
+## 📌 重要信息
+（待 AI 记录 — 进行中的项目、重要决定、关键约定）
+
+## 🗂 目录结构
+（待 AI 记录 — 你的笔记组织方式）
+
+## 📅 最近动态
+（待 AI 记录 — 最近几次对话的重点摘要）
+
+## 📚 参考教程
+- 教程/快速入门.md — 接入各类 AI 工具
+- 教程/接入/通用提示词.md — 适用于任意 AI 的提示词
+- 教程/使用技巧/记录规范.md — 何时记录、记什么、怎么写
+`,
+		},
+		{
+			path: tok + "/教程/快速入门.md",
+			content: `# NoteForAI 快速入门
+
+## 是什么？
+NoteForAI 是专为 AI 设计的持久记忆系统。配置后，AI 可以跨对话记住关于你的一切。
+
+## 三步开始
+
+**第一步：选择接入方式**
+- Claude Desktop / Code → 教程/接入/Claude.md（MCP，最简单）
+- ChatGPT / 通义 / 其他 → 教程/接入/通用提示词.md
+- Cursor → 教程/接入/Cursor.md
+
+**第二步：填入你的 Token**
+你的 Token 在管理面板右上角"配置"中查看，格式为 nfa_xxx...
+
+**第三步：开始对话**
+配置后，AI 每次启动时自动读取 index.md 摘要，像老朋友一样了解你。
+
+## 关键概念
+- **index.md** — 你的记忆总索引，AI 启动时读取，随时保持更新
+- **目录结构** — 按主题分文件夹，如 个人/、工作/、项目/
+- **版本保护** — 每次写入自动 Git 快照，误删可恢复
+
+## 你的接入信息
+- 接口地址：` + endpoint + `/
+- 管理面板：` + baseURL + `/dashboard.html?token=` + tok + `
+- MCP 地址：` + endpoint + `/mcp
+`,
+		},
+		{
+			path: tok + "/教程/接入/Claude.md",
+			content: `# 接入 Claude
+
+## 方式一：MCP（推荐）
+AI 直接调用笔记工具，无需在提示词中描述接口，效果最好。
+
+### Claude Desktop
+打开配置文件：
+- macOS: ~/Library/Application Support/Claude/claude_desktop_config.json
+- Windows: %APPDATA%\Claude\claude_desktop_config.json
+
+添加：
+` + "```json" + `
+{
+  "mcpServers": {
+    "noteforai": {
+      "type": "streamable-http",
+      "url": "` + endpoint + `/mcp"
+    }
+  }
+}
+` + "```" + `
+保存后重启 Claude Desktop，左下角出现 🔌 图标即为成功。
+
+### Claude Code
+` + "```bash" + `
+claude mcp add noteforai --transport streamable-http ` + endpoint + `/mcp
+` + "```" + `
+
+---
+
+## 方式二：系统提示词
+适用于 Claude.ai 网页版，在 Project 的 Instructions 中粘贴：
+
+` + "```" + `
+你拥有持久记忆系统 NoteForAI。接口：` + endpoint + `/
+调用：POST + JSON body
+
+操作：write / append / read / search / delete / history
+
+行为准则：
+1. 对话开始时，read("index.md") 获取记忆摘要
+2. 主动记录用户偏好、项目进展、重要决定
+3. 对话结束前 append 更新 index.md 的"最近动态"
+4. 文件用 .md 后缀，首行 # 标题，中文目录结构
+` + "```",
+		},
+		{
+			path: tok + "/教程/接入/ChatGPT.md",
+			content: `# 接入 ChatGPT
+
+## 方式一：自定义指令（Custom Instructions）
+Settings → 自定义指令 → "ChatGPT 应该了解你什么？" 填入：
+
+` + "```" + `
+我使用 NoteForAI 记忆系统记录个人信息和项目进展。
+接口：` + endpoint + `/（POST + JSON body）
+
+请在每次对话时：
+1. 先 read("index.md") 了解我的背景
+2. 将有价值的信息 write 或 append 到对应笔记
+3. 对话结束前更新 index.md 的最近动态
+` + "```" + `
+
+## 方式二：每次对话开头
+如果不想配置系统提示，每次对话开头发送：
+"请先读取我的记忆摘要：GET ` + endpoint + `/read?path=index.md"
+
+## 注意
+ChatGPT 网页版对工具调用有限制，建议使用自定义 GPT 并开启 Actions 以获得最佳体验。
+`,
+		},
+		{
+			path: tok + "/教程/接入/Cursor.md",
+			content: `# 接入 Cursor
+
+## 方式一：Rules（推荐）
+Settings → Rules → 添加：
+
+` + "```" + `
+你拥有持久记忆系统 NoteForAI。接口：` + endpoint + `/
+调用：curl 命令，POST + JSON body，Content-Type: application/json
+
+行为准则：
+1. 项目开始时 read("index.md") 获取用户和项目信息
+2. 记录用户编码偏好、项目架构决策、重要约定
+3. 路径建议：个人/偏好.md、项目/[项目名]/进展.md
+` + "```" + `
+
+## 方式二：.cursorrules 文件
+在项目根目录创建 .cursorrules 文件：
+
+` + "```" + `
+# NoteForAI 记忆系统
+接口: ` + endpoint + `/
+
+对话开始时 read("index.md")。
+重点记录：用户编码习惯、架构决策、项目约定、常用命令。
+` + "```" + `
+
+## 方式三：MCP
+Settings → MCP Servers → 添加（JSON 格式）：
+` + "```json" + `
+{
+  "noteforai": {
+    "type": "streamable-http",
+    "url": "` + endpoint + `/mcp"
+  }
+}
+` + "```",
+		},
+		{
+			path: tok + "/教程/接入/通用提示词.md",
+			content: `# 通用 AI 提示词
+
+适用于任何支持系统提示词（System Prompt）的 AI 工具。
+
+## 标准版（推荐直接使用）
+
+将以下内容复制到 AI 的系统提示 / 自定义指令中：
+
+---
+
+你拥有一个持久记忆系统 NoteForAI，用它记住关于用户的一切。
+
+接口：` + endpoint + `/
+调用：POST + JSON body，Content-Type: application/json
+
+| 操作 | 用途 | Body |
+|------|------|------|
+| write | 新建或覆盖笔记 | {"path":"目录/文件.md","content":"# 标题\n内容"} |
+| append | 追加内容到末尾 | {"path":"日志/2025.md","content":"\n## 今日\n- 事项"} |
+| read | 读取笔记 | {"path":"index.md"} |
+| search | 全文搜索 | {"query":"关键词"} |
+| delete | 删除笔记 | {"path":"文件.md"} |
+| history | 版本历史 | {"path":"文件.md","limit":20} |
+
+行为准则：
+1. 对话开始时，先 read("index.md") 获取记忆摘要（不用 tree）
+2. 对话中发现有价值信息，立即 write 或 append 保存
+3. 对话结束前，append 更新 index.md 的"最近动态"部分
+4. 所有文件用 .md 后缀，首行 # 标题，按主题组织中文目录
+
+触发记录的场景：用户提到偏好/习惯、新项目启动、重要决定、个人信息、待办事项
+
+---
+
+## 极简版（Token 限制严格时使用）
+
+你有 NoteForAI 持久记忆（` + endpoint + `/）。
+对话开始：read("index.md")；发现有价值信息：POST write/append；结束：更新 index.md。
+`,
+		},
+		{
+			path: tok + "/教程/接入/curl示例.md",
+			content: `# API 调用示例
+
+所有接口支持 GET（参数放 URL）和 POST（JSON body）两种方式。
+
+## 读取摘要索引
+` + "```bash" + `
+curl '` + endpoint + `/read?path=index.md'
+` + "```" + `
+
+## 写入笔记
+` + "```bash" + `
+curl -X POST '` + endpoint + `/write' \
+  -H 'Content-Type: application/json' \
+  -d '{"path":"个人/基本信息.md","content":"# 基本信息\n\n姓名：张三\n职业：产品经理"}'
+` + "```" + `
+
+## 追加内容
+` + "```bash" + `
+curl -X POST '` + endpoint + `/append' \
+  -H 'Content-Type: application/json' \
+  -d '{"path":"日志/工作.md","content":"\n\n## 2025-01-15\n- 完成需求评审"}'
+` + "```" + `
+
+## 全文搜索
+` + "```bash" + `
+curl '` + endpoint + `/search?q=关键词'
+` + "```" + `
+
+## 查看目录树
+` + "```bash" + `
+curl '` + endpoint + `/tree'
+` + "```" + `
+
+## 版本历史与恢复
+` + "```bash" + `
+# 查看历史
+curl '` + endpoint + `/history?path=个人/基本信息.md'
+
+# 查看某次变更内容
+curl '` + endpoint + `/diff?path=个人/基本信息.md&commit=abc1234'
+
+# 恢复到历史版本
+curl -X POST '` + endpoint + `/revert' \
+  -H 'Content-Type: application/json' \
+  -d '{"path":"个人/基本信息.md","commit":"abc1234"}'
+` + "```" + `
+
+## 查看并恢复已删除文件
+` + "```bash" + `
+curl '` + endpoint + `/deleted'
+` + "```",
+		},
+		{
+			path: tok + "/教程/使用技巧/目录结构.md",
+			content: `# 推荐目录结构
+
+合理的目录结构让 AI 更快找到相关信息。
+
+## 推荐结构
+
+` + "```" + `
+index.md              ← 总索引，AI 启动必读
+个人/
+  基本信息.md         ← 姓名、职业、联系方式
+  偏好.md             ← 风格偏好、工作习惯、喜好
+  背景.md             ← 教育经历、技能、经验
+工作/
+  进行中/
+    项目A.md          ← 项目概述、进展、关键决定
+    项目B.md
+  归档/               ← 已完成项目
+  日志.md             ← 工作日志（append 追加）
+知识库/
+  技术.md             ← 常用技术栈、工具
+  资源.md             ← 常用链接、参考资料
+待办/
+  本周.md             ← 本周待办事项
+` + "```" + `
+
+## 四个原则
+
+1. **按主题分，不按时间**：时间用 append 记在同一文件里
+2. **路径自描述**：一看路径就知道内容
+3. **index.md 常更新**：摘要始终反映最新状态
+4. **宁深勿杂**：3级目录比把所有文件堆在根目录好
+
+## 反面示例
+❌ 2025-01-15-meeting.md（散文件，难以积累）
+❌ misc.md（啥都往里放）
+✅ 工作/进行中/NoteForAI重构.md（主题明确，可持续追加）
+`,
+		},
+		{
+			path: tok + "/教程/使用技巧/记录规范.md",
+			content: `# 记录规范 · 何时记、记什么、怎么写
+
+## 何时记录
+
+### 立即记录（不需要用户明确要求）
+- ✅ 用户提到偏好（"我喜欢简洁风格"、"习惯早上工作"）
+- ✅ 新项目或任务开始
+- ✅ 重要决定或结论（"决定用 React"、"选择了方案B"）
+- ✅ 用户基本信息（职业、技能、背景）
+- ✅ 明确的待办事项或计划
+- ✅ 常用工具、流程、团队约定
+
+### 谨慎记录（可先询问）
+- ❓ 敏感信息（健康、财务）
+- ❓ 暂时性想法（"也许可以试试..."）
+
+### 不需要记录
+- ❌ 普通闲聊
+- ❌ 已有记录的重复信息
+- ❌ 纯技术问答（无个人化内容）
+
+## 文件格式规范
+
+` + "```markdown" + `
+# 文件标题
+
+> 一句话描述本文件的内容范围
+
+## 核心信息
+最重要的内容放最前面
+
+## 详细记录
+
+### 2025-01-15
+- 具体事项，简洁一句话
+- 另一个事项
+
+### 2025-01-16
+- 新增内容用 append 追加在此
+` + "```" + `
+
+## write vs append
+
+| 场景 | 用哪个 |
+|------|--------|
+| 第一次创建文件 | write |
+| 信息有更新需要覆盖 | write |
+| 追加新日志、新事件 | append |
+| 补充额外信息 | append |
+
+## 更新 index.md
+
+每次对话结束前，append 更新最近动态：
+
+` + "```markdown" + `
+
+### 2025-01-15
+- 讨论了 NoteForAI 接入方案，决定优先用 MCP
+- 用户偏好简洁设计风格，已记录到 个人/偏好.md
+` + "```" + `
+
+## 好例子 vs 坏例子
+
+✅ write("个人/偏好.md", "# 个人偏好\n\n## 工作风格\n- 喜欢简洁、模块化代码\n- 偏好先设计后编码\n\n## 2025-01-15\n- 补充：代码注释习惯用中文")
+
+❌ write("笔记.md", "用户说喜欢简洁") — 路径不清，格式随意，难以积累
+`,
+		},
+		{
+			path: tok + "/教程/使用技巧/版本管理.md",
+			content: `# 版本管理 · 回溯与恢复
+
+NoteForAI 每次 write 和 append 自动创建 Git 版本快照，永远不用担心误删。
+
+## 查看文件历史版本
+
+` + "```bash" + `
+curl '` + endpoint + `/history?path=个人/基本信息.md'
+` + "```" + `
+
+返回示例：
+` + "```" + `
+abc12345 2025-01-15T10:30:00+08:00 write 个人/基本信息.md
+def67890 2025-01-14T09:00:00+08:00 append 个人/基本信息.md
+` + "```" + `
+
+## 查看某次变更详情
+
+` + "```bash" + `
+curl '` + endpoint + `/diff?path=个人/基本信息.md&commit=abc12345'
+` + "```" + `
+
+## 恢复到历史版本
+
+` + "```bash" + `
+curl -X POST '` + endpoint + `/revert' \
+  -H 'Content-Type: application/json' \
+  -d '{"path":"个人/基本信息.md","commit":"abc12345"}'
+` + "```" + `
+
+> 恢复是非破坏性的：写入一个新版本，不会丢失中间的修改历史。
+
+## 恢复已删除的文件
+
+` + "```bash" + `
+# 第一步：查看可恢复的文件
+curl '` + endpoint + `/deleted'
+
+# 第二步：用 restore_hash 恢复
+curl -X POST '` + endpoint + `/revert' \
+  -H 'Content-Type: application/json' \
+  -d '{"path":"已删除的文件.md","commit":"restore_hash_值"}'
+` + "```" + `
+
+## 在管理面板操作
+
+打开管理面板 → 点击文件 → 点击"历史"按钮，图形化查看和恢复版本，无需命令行。
+`,
+		},
+	}
+
+	for _, f := range files {
+		if _, err := s.Write(f.path, []byte(f.content)); err != nil {
+			log.Printf("initTokenFiles: failed to write %s: %v", f.path, err)
+		}
+	}
+	log.Printf("initTokenFiles: initialized %d files for token %s", len(files), tok[:12]+"...")
 }
 
 func (h *HTTPServer) write(w http.ResponseWriter, r *http.Request) {

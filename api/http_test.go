@@ -248,8 +248,16 @@ func TestListRoot(t *testing.T) {
 
 	var entries []store.Entry
 	json.NewDecoder(resp.Body).Decode(&entries)
-	if len(entries) != 1 {
-		t.Errorf("expected 1 entry, got %d", len(entries))
+	// Root contains init tutorial files + the written note; check note1 is present
+	found := false
+	for _, e := range entries {
+		if e.Name == "note1" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected to find 'note1' in root listing, got %v", entries)
 	}
 }
 

@@ -17,36 +17,36 @@ import (
 func NewMCPServer(s *store.Store, tok string) *server.MCPServer {
 	srv := server.NewMCPServer("NoteForAI", "1.0.0",
 		server.WithToolCapabilities(true),
-		server.WithInstructions(`NoteForAI — AI 专属持久记忆系统。你拥有一个笔记空间，可以跨对话保存和检索信息。
+		server.WithInstructions(`NoteForAI — AI 专属持久记忆系统，跨对话保存和检索信息。
 
-## 使用规范
-- 所有文件必须使用 .md 后缀，内容使用 Markdown 格式，首行为 # 标题
-- 路径使用 / 分隔，如 "工作/项目A/进展.md"
-- 建议按主题组织目录结构，如 个人/、工作/、项目/
+## 启动流程
+每次对话开始，执行：read("index.md")
+这是记忆总索引，包含用户基本信息、当前项目、最近动态。
+直接读取索引即可，不需要先调用 tree()。
 
-## 工作流程
-1. 每次对话开始，先调用 tree() 回顾已有笔记结构
-2. 按需 read() 相关笔记，利用已有信息回应用户
-3. 对话中出现有价值的信息时，主动 write() 或 append() 保存
-4. 信息变更时用 write() 覆盖，补充信息用 append()
+## 何时记录（无需用户明确要求）
+- 用户提到偏好、习惯、风格（"我喜欢简洁代码"）
+- 新项目或任务开始
+- 重要决定或结论
+- 用户基本信息（职业、技能、背景）
+- 待办事项或明确计划
 
-## 工具概览
-- write(path, content) — 新建或覆盖笔记
-- read(path) — 读取笔记内容
-- append(path, content) — 追加内容到笔记末尾
-- delete(path) — 删除文件或目录（可通过 deleted + revert 恢复）
-- list(path) — 列出目录内容
-- tree(path) — 递归显示目录树
-- search(query, path) — 全文搜索（支持中英文）
-- history(path, limit) — 查看版本历史
-- diff(path, commit) — 查看某次变更的详情
-- revert(path, commit) — 恢复到指定版本
-- deleted(limit) — 列出已删除的可恢复文件
+## 记录格式
+- 文件用 .md 后缀，首行 # 标题
+- 按主题组织中文目录：个人/、工作/、项目/
+- 追加内容标注日期（### YYYY-MM-DD）
+- 新建用 write，补充用 append，信息有变化用 write 覆盖
 
-## 注意事项
-- 像一个记得一切的老朋友，主动记录，宁多勿漏
-- 每条笔记标注日期，写入后一句话告知用户
-- 用合理的目录结构自行组织信息`),
+## 对话结束前
+append 更新 index.md 的"最近动态"部分，记录本次要点。
+
+## 工具速查
+- read("index.md") — 启动必读
+- write(path, content) — 新建或覆盖
+- append(path, content) — 追加到末尾
+- search(query) — 全文搜索
+- history(path) + revert(path, commit) — 版本回溯
+- deleted() — 查看可恢复的已删除文件`),
 	)
 
 	p := &mcpPrefix{store: s, token: tok}

@@ -216,31 +216,29 @@ I18N._dict['zh-CN'] = {
   'prompt.full': ({base, token}) => `你拥有一个持久记忆系统 NoteForAI，用它记住关于用户的一切。
 
 接口：${base}/${token}/
-调用：POST + JSON body
+调用：POST + JSON body，Content-Type: application/json
 
 | 操作 | 用途 | Body |
 |------|------|------|
-| write | 新建/覆盖笔记 | {"path": "目录/文件名.md", "content": "..."} |
-| append | 追加内容 | {"path": "...", "content": "..."} |
-| read | 读取笔记 | {"path": "..."} |
+| write | 新建/覆盖笔记 | {"path": "目录/文件.md", "content": "# 标题\n内容"} |
+| append | 追加内容到末尾 | {"path": "...", "content": "\n### 日期\n- 事项"} |
+| read | 读取笔记 | {"path": "index.md"} |
 | search | 全文搜索 | {"query": "关键词"} |
-| tree | 浏览目录结构 | {"path": ""} |
-| list | 列出目录内容 | {"path": "..."} |
 | delete | 删除笔记 | {"path": "..."} |
 | history | 版本历史 | {"path": "...", "limit": 20} |
 
 文件规范：
-- 所有文件必须使用 .md 后缀，如 "个人/基本信息.md"
-- 内容使用 Markdown 格式，首行为标题 "# xxx"
-- 用合理的中文目录结构组织笔记
+- 所有文件使用 .md 后缀，首行 # 标题
+- 按主题组织中文目录：个人/、工作/、项目/
+- 追加内容标注日期（### YYYY-MM-DD）
 
 行为准则：
-1. 每次对话开始，先 tree() 回顾已有记忆，按需 read 关键笔记
-2. 主动记录有价值信息（用 write 或 append），不必等用户要求
-3. 新建笔记用 write，补充信息用 append，每条标注日期
-4. 信息变更时用 write 覆盖更新`,
+1. 对话开始时，先 read("index.md") 获取记忆摘要（不用 tree）
+2. 发现有价值信息立即记录：用户偏好/习惯、新项目、重要决定、待办事项
+3. 新建用 write，补充用 append，信息有变化用 write 覆盖
+4. 对话结束前，append 更新 index.md 的"最近动态"部分`,
 
-  'prompt.short': ({base, token}) => `你拥有一个持久记忆系统 NoteForAI，用它记住关于用户的一切。\n\n接口：${base}/${token}/\n调用：POST + JSON body\n\n操作：write / append / read / search / tree / list / delete / history\n\n文件规范：所有文件使用 .md 后缀，Markdown 格式，首行 # 标题\n\n行为准则：\n1. 每次对话开始，先 tree() 回顾记忆，按需 read\n2. 主动记录有价值信息，write 新建，append 追加\n3. 用合理的中文目录结构组织，每条标注日期`,
+  'prompt.short': ({base, token}) => `你拥有一个持久记忆系统 NoteForAI，用它记住关于用户的一切。\n\n接口：${base}/${token}/\n调用：POST + JSON body\n\n操作：write / append / read / search / delete / history\n\n文件规范：.md 后缀，首行 # 标题，中文目录结构\n\n行为准则：\n1. 对话开始：read("index.md") 获取摘要（不用 tree）\n2. 主动记录：用户偏好、新项目、重要决定、待办事项\n3. 新建用 write，补充用 append，每条标注日期\n4. 结束前：append 更新 index.md 最近动态`,
 
   'curl.examples': ({base, token}) => `# 创建 Token
 curl -X POST '${base}/create_token'
@@ -569,31 +567,29 @@ I18N._dict['en'] = {
   'prompt.full': ({base, token}) => `You have a persistent memory system called NoteForAI. Use it to remember everything about the user.
 
 Endpoint: ${base}/${token}/
-Method: POST + JSON body
+Method: POST + JSON body, Content-Type: application/json
 
 | Action | Purpose | Body |
 |--------|---------|------|
-| write | Create/overwrite a note | {"path": "dir/filename.md", "content": "..."} |
-| append | Append content | {"path": "...", "content": "..."} |
-| read | Read a note | {"path": "..."} |
+| write | Create/overwrite a note | {"path": "dir/file.md", "content": "# Title\ncontent"} |
+| append | Append to end of note | {"path": "...", "content": "\n### Date\n- item"} |
+| read | Read a note | {"path": "index.md"} |
 | search | Full-text search | {"query": "keywords"} |
-| tree | Browse directory structure | {"path": ""} |
-| list | List directory contents | {"path": "..."} |
 | delete | Delete a note | {"path": "..."} |
 | history | Version history | {"path": "...", "limit": 20} |
 
 File conventions:
-- All files must use .md suffix, e.g. "personal/profile.md"
-- Use Markdown format, first line should be a heading "# Title"
-- Organize notes in a logical directory structure
+- All files use .md suffix, first line # Title
+- Organize in topic-based directories: personal/, work/, projects/
+- Date each appended entry (### YYYY-MM-DD)
 
 Behavior guidelines:
-1. At the start of each conversation, call tree() to review existing notes, then read() key notes as needed
-2. Proactively record valuable information (using write or append), don't wait for the user to ask
-3. Use write for new notes, append for additions, include dates with each entry
-4. Use write to overwrite when information changes`,
+1. Start of conversation: read("index.md") to get memory summary (skip tree())
+2. Record immediately when user mentions preferences/habits, starts a project, makes a decision, or shares personal info
+3. Use write for new notes, append for additions, write to overwrite when info changes
+4. Before ending: append to index.md "Recent Activity" section with session highlights`,
 
-  'prompt.short': ({base, token}) => `You have a persistent memory system called NoteForAI. Use it to remember everything about the user.\n\nEndpoint: ${base}/${token}/\nMethod: POST + JSON body\n\nActions: write / append / read / search / tree / list / delete / history\n\nFile conventions: All files use .md suffix, Markdown format, first line # Title\n\nBehavior:\n1. Start each conversation with tree() to review memory, read() as needed\n2. Proactively record valuable info, write for new, append to add\n3. Organize in logical directory structure, date each entry`,
+  'prompt.short': ({base, token}) => `You have a persistent memory system called NoteForAI. Use it to remember everything about the user.\n\nEndpoint: ${base}/${token}/\nMethod: POST + JSON body\n\nActions: write / append / read / search / delete / history\n\nConventions: .md suffix, # Title first line, topic-based directories\n\nBehavior:\n1. Start: read("index.md") for memory summary (not tree)\n2. Record: preferences, new projects, decisions, personal info, todos\n3. write for new, append for additions, date each entry\n4. End: append to index.md Recent Activity`,
 
   'curl.examples': ({base, token}) => `# Create Token
 curl -X POST '${base}/create_token'
