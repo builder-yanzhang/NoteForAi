@@ -79,7 +79,7 @@ append 更新 index.md 的"最近动态"部分，记录本次要点。
 	), p.list)
 
 	srv.AddTool(mcp.NewTool("tree",
-		mcp.WithDescription("Show the full directory tree recursively. IMPORTANT: Call this at the START of every conversation to review existing notes.\n\n递归显示目录树。重要：每次对话开始时调用此工具回顾已有笔记。"),
+		mcp.WithDescription("Show the full directory tree recursively. Useful for exploring the note structure.\n\n递归显示目录树，用于浏览笔记结构。"),
 		mcp.WithString("path", mcp.Description("Directory path. Leave empty for full tree from root.")),
 	), p.tree)
 
