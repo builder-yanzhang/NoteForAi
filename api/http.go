@@ -387,7 +387,7 @@ Settings → MCP Servers → 添加（JSON 格式）：
 
 行为准则：
 1. 对话开始时，先 read("index.md") 获取记忆摘要（不用 tree）
-2. 对话中发现有价值信息，立即 write 或 append 保存
+2. 发现有价值信息立即保存：新建/更新用 write，追加新内容用 append
 3. 对话结束前，append 更新 index.md 的"最近动态"部分
 4. 所有文件用 .md 后缀，首行 # 标题，按主题组织中文目录
 
