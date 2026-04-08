@@ -221,7 +221,7 @@ I18N._dict['zh-CN'] = {
 | 操作 | 用途 | Body |
 |------|------|------|
 | write | 新建/覆盖笔记 | {"path": "目录/文件.md", "content": "# 标题\n内容"} |
-| append | 追加内容到末尾 | {"path": "...", "content": "\n### 日期\n- 事项"} |
+| append | 追加内容到末尾 | {"path": "...", "content": "\n### YYYY-MM-DD\n- 事项"} |
 | read | 读取笔记 | {"path": "index.md"} |
 | search | 全文搜索 | {"query": "关键词"} |
 | delete | 删除笔记 | {"path": "..."} |
@@ -572,7 +572,7 @@ Method: POST + JSON body, Content-Type: application/json
 | Action | Purpose | Body |
 |--------|---------|------|
 | write | Create/overwrite a note | {"path": "dir/file.md", "content": "# Title\ncontent"} |
-| append | Append to end of note | {"path": "...", "content": "\n### Date\n- item"} |
+| append | Append to end of note | {"path": "...", "content": "\n### YYYY-MM-DD\n- item"} |
 | read | Read a note | {"path": "index.md"} |
 | search | Full-text search | {"query": "keywords"} |
 | delete | Delete a note | {"path": "..."} |
