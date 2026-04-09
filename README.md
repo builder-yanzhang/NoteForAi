@@ -3,99 +3,94 @@
 **Give your AI a notebook that never forgets.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Go](https://img.shields.io/badge/Go-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![MCP](https://img.shields.io/badge/MCP-Supported-brightgreen)](https://modelcontextprotocol.io)
+[![Self-Hostable](https://img.shields.io/badge/Self--Hostable-%E2%9C%93-orange)]()
 
-> **Try it now** — [noteforai.com](https://noteforai.com) is live. Get a token in one click, no signup required.
+> **Try it free** → [noteforai.com](https://noteforai.com) · No signup, no install, one click to get a token.
+
+---
+
+![NoteForAI Homepage](docs/images/hero.png)
+
+---
 
 ## The Problem
 
 Every AI conversation starts from scratch. Your AI forgets your preferences, loses project context, and makes you repeat yourself — every single time.
 
+```
+You: "I'm a backend engineer, I prefer Go, and I'm working on NoteForAI..."
+AI:  "Got it! How can I help?"
+
+[Next conversation]
+
+You: "Help me with the API design"
+AI:  "Sure! Could you tell me a bit about your project first?"  ← 😤
+```
+
 ## The Solution
 
-NoteForAI gives AI a persistent, structured notebook. It works across conversations, across tools, across devices.
+NoteForAI gives any AI a persistent, structured notebook. Works across conversations, tools, and devices.
 
-- **File-system-like API** — write, read, append, delete, list, tree, search
-- **Full-text search** — Bleve engine with CJK + multilingual support
-- **Multi-tenant** — one token per user, fully isolated
-- **Git versioning** — history, diff, revert for every file
-- **Dual protocol** — HTTP API + MCP stdio
-- **Self-hostable** — single binary, no database, your data stays yours
+![Dashboard](docs/images/dashboard.png)
 
-## Quick Start — Try the Hosted Service
+---
 
-No signup. No install. No credit card. Just run:
+## Quick Start — 30 Seconds
+
+No signup. No install. Just run:
 
 ```bash
 # 1. Get your token
-curl -X POST https://noteforai.com/create_token
-# → {"token":"nfa_abc123..."}
+TOKEN=$(curl -s -X POST https://noteforai.com/create_token | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+echo "Your token: $TOKEN"
 
-# 2. Save something
-curl -X POST https://noteforai.com/nfa_abc123.../write \
+# 2. Save something about yourself
+curl -X POST "https://noteforai.com/$TOKEN/write" \
   -H 'Content-Type: application/json' \
-  -d '{"path":"me.md","content":"# About Me\nI prefer concise code and dark themes."}'
+  -d '{"path":"me/profile.md","content":"# About Me\n\nRole: Backend Engineer\nPrefers: Go, clean code, dark themes\nCurrent project: NoteForAI"}'
 
-# 3. Read it back (from any conversation, any device)
-curl -X POST https://noteforai.com/nfa_abc123.../read \
-  -d '{"path":"me.md"}'
+# 3. Your AI now remembers you — across every conversation ✓
 ```
 
-Now paste the API config into your AI tool (e.g. CLAUDE.md), and your AI remembers everything.
+Then paste this into your AI's system prompt (replace `YOUR_TOKEN`):
 
-## Use Cases
-
-**Claude Code / Cursor** — AI remembers your coding style, project decisions, and tech stack across sessions.
-
-**AI Agents** — Agents accumulate knowledge over time instead of starting cold every run.
-
-**Personal AI Assistant** — Store preferences, goals, contacts — your AI knows you like an old friend.
-
-## Two Ways to Use
-
-### Hosted (noteforai.com)
-
-Zero setup. Create a token and start calling the API. Free to use.
-
-### Self-Hosted
-
-Full control over your data. Single binary, no database.
-
-```bash
-# Build and run
-go build -o noteforai .
-./noteforai serve
-
-# Or use Docker
-docker compose up --build
+```
+You have persistent memory via NoteForAI.
+API: https://noteforai.com/YOUR_TOKEN/
+Start each conversation with: read("me/profile.md")
+Record preferences and context with write() or append().
 ```
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `8080` | Listen port |
-| `DATA_DIR` | `./data` | Data directory |
-| `QUOTA_MB` | `0` | Per-token disk quota in MB (0 = unlimited) |
-| `TRASH_DAYS` | `30` | Soft-delete retention days |
+Or use **MCP** for a native tool experience (see below).
 
-## API Reference
+---
 
-All endpoints accept GET (query params) and POST (JSON body).
+## Core Features
 
-| Endpoint | Params | Description |
-|----------|--------|-------------|
-| `POST /create_token` | — | Get a new token |
-| `/{token}/write` | `path`, `content` | Create or overwrite a file |
-| `/{token}/read` | `path` | Read a file |
-| `/{token}/append` | `path`, `content` | Append to a file |
-| `/{token}/delete` | `path` | Delete a file or directory |
-| `/{token}/list` | `path` | List directory contents |
-| `/{token}/tree` | `path` | Recursive directory tree |
-| `/{token}/search` | `query`, `path` | Full-text search |
-| `/{token}/destroy` | — | Delete token and all data |
+| Feature | Description |
+|---------|-------------|
+| 📝 **File-system API** | write, read, append, delete, list, tree, search |
+| 🔍 **Full-text search** | Bleve engine with CJK + multilingual support |
+| 🔀 **Git versioning** | Every write auto-snapshotted — history, diff, revert |
+| 🌐 **Dual protocol** | HTTP API + MCP (Streamable HTTP or stdio) |
+| 🔒 **Multi-tenant** | Token-based isolation, no accounts needed |
+| 📦 **Export** | ZIP / JSON anytime, no vendor lock-in |
+| 🏠 **Self-hostable** | Single Go binary, no database required |
+| 🌍 **18 languages** | Built-in i18n in the web UI |
 
-## MCP Integration
+---
 
-**Hosted service** — uses Streamable HTTP transport, no install needed:
+## MCP Integration (Recommended)
+
+The cleanest way to give Claude or any MCP-compatible AI persistent memory.
+
+![Integration Setup](docs/images/integration.png)
+
+### Claude Desktop / Claude Code
+
+**Hosted service** — Streamable HTTP, no install needed:
 
 ```json
 {
@@ -108,8 +103,12 @@ All endpoints accept GET (query params) and POST (JSON body).
 }
 ```
 
-**Self-hosted** — uses stdio transport:
+**Claude Code CLI:**
+```bash
+claude mcp add noteforai --transport streamable-http https://noteforai.com/YOUR_TOKEN/mcp
+```
 
+**Self-hosted** — stdio transport:
 ```json
 {
   "mcpServers": {
@@ -121,21 +120,138 @@ All endpoints accept GET (query params) and POST (JSON body).
 }
 ```
 
-Both provide 11 tools: write, read, append, delete, list, tree, search, history, diff, revert, deleted.
+MCP tools available: `write`, `read`, `append`, `delete`, `list`, `tree`, `search`, `history`, `diff`, `revert`, `deleted` (11 total).
+
+---
+
+## Git Version History
+
+Every write and append is automatically snapshotted. Browse, diff, and restore from the dashboard.
+
+![Version History](docs/images/history.png)
+
+```bash
+# View history
+curl "https://noteforai.com/$TOKEN/history?path=me/profile.md"
+
+# See what changed
+curl "https://noteforai.com/$TOKEN/diff?path=me/profile.md&commit=abc12345"
+
+# Restore to a previous version
+curl -X POST "https://noteforai.com/$TOKEN/revert" \
+  -d '{"path":"me/profile.md","commit":"abc12345"}'
+```
+
+---
+
+## Use Cases
+
+**🖥 Claude Code / Cursor / Windsurf**
+AI remembers your coding style, project architecture decisions, and preferred patterns across every session.
+
+**🤖 Autonomous AI Agents**
+Agents accumulate knowledge over long-running tasks instead of starting cold every run.
+
+**👤 Personal AI Assistant**
+Store preferences, goals, contacts, project context — your AI knows you like an old friend.
+
+---
+
+## Web Dashboard
+
+![Token Creation](docs/images/token-modal.png)
+
+Built-in file-manager UI at `/dashboard.html`:
+- Browse, create, edit, and preview (Markdown rendered) notes
+- Live full-text search
+- Version history with one-click restore
+- Export all notes as ZIP or JSON
+- Recycle bin for deleted files
+
+---
+
+## Self-Hosting
+
+Full control over your data. Single binary, no database.
+
+```bash
+# Build and run
+go build -o noteforai .
+./noteforai serve
+
+# Or Docker
+docker compose up --build
+```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `8080` | Listen port |
+| `DATA_DIR` | `./data` | Data storage directory |
+| `QUOTA_MB` | `0` | Per-token disk quota in MB (0 = unlimited) |
+| `TRASH_DAYS` | `30` | Soft-delete retention days |
+
+Deploy on any VPS, Fly.io, Railway, or Render. See [fly.toml](fly.toml) for Fly.io config.
+
+---
+
+## API Reference
+
+All endpoints accept both `GET` (query params) and `POST` (JSON body).
+
+| Endpoint | Params | Description |
+|----------|--------|-------------|
+| `POST /create_token` | — | Create a new token |
+| `/{token}/write` | `path`, `content` | Create or overwrite a file |
+| `/{token}/read` | `path` | Read a file |
+| `/{token}/append` | `path`, `content` | Append to a file |
+| `/{token}/delete` | `path` | Delete a file or directory (soft) |
+| `/{token}/list` | `path` | List directory contents |
+| `/{token}/tree` | `path` | Recursive directory tree |
+| `/{token}/search` | `query`, `path` | Full-text search |
+| `/{token}/history` | `path`, `limit` | Git version history |
+| `/{token}/diff` | `path`, `commit` | View a specific commit diff |
+| `/{token}/revert` | `path`, `commit` | Restore file to a version |
+| `/{token}/deleted` | `limit` | List recoverable deleted files |
+| `/{token}/destroy` | — | Delete token and all data |
+| `/{token}/mcp` | — | MCP Streamable HTTP endpoint |
+
+HTTP status codes: `201` created · `200` ok · `404` not found · `401` invalid token · `413` quota exceeded
+
+---
 
 ## Architecture
 
 ```
-main.go           Entry point (serve / mcp)
-api/http.go       HTTP API + logging + validation
-api/mcp.go        MCP stdio server
-store/store.go    Core: file operations + indexer + locks + quota
-store/git.go      Git-based version control
-index/bleve.go    Full-text search (Bleve + CJK bigram)
-token/token.go    Token generation (nfa_ + 32 random chars)
-api/ui/           Embedded web UI (18 languages)
+main.go           Entry point — CLI (serve / mcp <token>)
+api/http.go       HTTP API + request logging + 10MB body limit
+api/mcp.go        MCP server (Streamable HTTP + stdio)
+store/store.go    Core: file ops + Indexer interface + per-path locks + quota
+store/git.go      Git-based version control (go-git)
+index/bleve.go    Full-text search — Bleve + CJK bigram tokenizer
+token/token.go    Token generation (nfa_ prefix + 32 random chars)
+api/ui/           Embedded web UI — 18 languages, zero build step
 ```
+
+Data layout:
+```
+data/
+  files/{token}/    User files (plain Markdown)
+  index/            Bleve full-text index
+```
+
+---
+
+## Contributing
+
+PRs welcome. Run tests before submitting:
+
+```bash
+go test ./... -v -race
+go vet ./...
+```
+
+---
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) — use it, fork it, self-host it.
