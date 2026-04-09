@@ -77,7 +77,20 @@ All endpoints accept both GET (query params) and POST (JSON body).
 
 ## MCP Mode
 
-Connect directly from AI tools like Claude Code:
+Connect directly from AI tools like Claude Code. Add to your MCP config (e.g. `~/.claude/claude_code_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "noteforai": {
+      "command": "/path/to/noteforai",
+      "args": ["mcp", "YOUR_TOKEN"]
+    }
+  }
+}
+```
+
+Or run standalone via stdio:
 
 ```bash
 ./noteforai mcp <token>
