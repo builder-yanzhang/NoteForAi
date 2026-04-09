@@ -1,0 +1,105 @@
+# NoteForAI
+
+> AI-native persistent memory backend with file-system-like API, Git versioning, full-text search, and MCP support.
+
+NoteForAI gives AI assistants a persistent, structured memory store. Notes are organized in a per-token namespace (one namespace per AI agent/user), stored as plain Markdown files on disk with automatic Git versioning for every change. It exposes both an HTTP REST API and an MCP (Model Context Protocol) endpoint so AI tools can integrate with zero friction.
+
+## Docs
+
+- [README (English)](https://github.com/builder-yanzhang/NoteForAi/blob/master/README.md): Full setup guide, API reference, MCP config examples
+- [README (简体中文)](https://github.com/builder-yanzhang/NoteForAi/blob/master/README_zh-CN.md): Chinese Simplified
+- [README (日本語)](https://github.com/builder-yanzhang/NoteForAi/blob/master/README_ja.md): Japanese
+- [API Reference](https://github.com/builder-yanzhang/NoteForAi/blob/master/README.md#api-reference): All HTTP endpoints
+- [MCP Integration](https://github.com/builder-yanzhang/NoteForAi/blob/master/README.md#mcp-integration): MCP config for Claude Desktop, Cursor, and other clients
+
+## Key Features
+
+- **File-system-like API**: write, read, append, delete, list, tree — intuitive path-based note management
+- **Git versioning**: every write is a commit; full history, diff, and revert support
+- **Full-text search**: CJK-aware search powered by Bleve (no external DB required)
+- **MCP Streamable HTTP**: native MCP protocol via `/{token}/mcp` — works with Claude Desktop, Cursor, Windsurf, and any MCP client
+- **MCP stdio**: also supports stdio transport for local integrations
+- **Multi-tenant**: each API token gets an isolated namespace (separate directory + Git repo)
+- **Self-hostable**: single Go binary, no database, minimal dependencies
+- **Web dashboard**: built-in UI for note browsing, editing, version history, recycle bin
+- **Hosted service**: available at `https://noteforai.com` — no self-hosting required
+
+## HTTP API Endpoints
+
+All endpoints require `Authorization: Bearer {token}` header.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/write` | Create or overwrite a note |
+| GET | `/read?path=` | Read a note by path |
+| POST | `/append` | Append content to a note |
+| DELETE | `/delete?path=` | Move a note to recycle bin |
+| GET | `/list?path=` | List notes in a directory |
+| GET | `/tree` | Full directory tree |
+| GET | `/search?q=` | Full-text search |
+| GET | `/history?path=` | Git commit history for a note |
+| GET | `/diff?path=&commit=` | Diff between versions |
+| POST | `/revert` | Restore a previous version |
+| GET | `/deleted` | List recycle bin contents |
+| DELETE | `/destroy?path=` | Permanently delete a note |
+| POST | `/create_token` | Create a new API token |
+
+## MCP Configuration
+
+### Hosted (Streamable HTTP)
+
+```json
+{
+  "mcpServers": {
+    "noteforai": {
+      "type": "http",
+      "url": "https://noteforai.com/{your-token}/mcp"
+    }
+  }
+}
+```
+
+### Self-hosted (stdio)
+
+```json
+{
+  "mcpServers": {
+    "noteforai": {
+      "command": "/path/to/noteforai",
+      "args": ["--mcp", "--data", "/path/to/data"],
+      "env": {
+        "NFA_TOKEN": "your-token"
+      }
+    }
+  }
+}
+```
+
+## Usage Pattern for AI Agents
+
+When starting a session, call `tree()` to orient yourself. Use path-based organization: `projects/myapp/notes.md`, `daily/2024-01-15.md`, `research/topic.md`. Append to existing notes rather than overwriting when adding incremental information.
+
+## Tech Stack
+
+- **Language**: Go 1.21+
+- **Search**: Bleve (embedded full-text, CJK support)
+- **Storage**: Filesystem + Git (via go-git)
+- **Protocol**: HTTP REST + MCP (Streamable HTTP + stdio)
+- **UI**: Embedded single-file HTML (go:embed)
+- **Deployment**: Single binary, Docker, or Fly.io
+
+## Self-Hosting
+
+```bash
+# Docker
+docker run -d -p 8080:8080 -v ./data:/data noteforai/noteforai
+
+# From source
+git clone https://github.com/builder-yanzhang/NoteForAi
+cd NoteForAi && go build -o noteforai .
+./noteforai --port 8080 --data ./data
+```
+
+## License
+
+MIT
