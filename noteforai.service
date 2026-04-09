@@ -1,14 +1,13 @@
 [Unit]
-Description=NoteForAI - AI Note System
+Description=NoteForAI
 After=network.target
 
 [Service]
 Type=simple
-User=yerik
-WorkingDirectory=/home/yerik/noteforai
-ExecStart=/home/yerik/noteforai/noteforai-linux serve
-Environment=PORT=443
-Environment=DATA_DIR=/home/yerik/noteforai/data
+WorkingDirectory=/opt/noteforai
+ExecStart=/opt/noteforai/noteforai serve
+Environment=PORT=8080
+Environment=DATA_DIR=/opt/noteforai/data
 Environment=QUOTA_MB=500
 Restart=on-failure
 RestartSec=5

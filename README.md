@@ -4,7 +4,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-00ADD8?logo=go&logoColor=white)](https://go.dev)
-[![Website](https://img.shields.io/badge/noteforai.com-live-brightgreen)](https://noteforai.com)
+
+> **Try it now** — [noteforai.com](https://noteforai.com) is live. Get a token in one click, no signup required.
 
 ## The Problem
 
@@ -21,9 +22,9 @@ NoteForAI gives AI a persistent, structured notebook. It works across conversati
 - **Dual protocol** — HTTP API + MCP stdio
 - **Self-hostable** — single binary, no database, your data stays yours
 
-## Try It in 30 Seconds
+## Quick Start — Try the Hosted Service
 
-No signup. No install. Just run:
+No signup. No install. No credit card. Just run:
 
 ```bash
 # 1. Get your token
@@ -92,9 +93,22 @@ All endpoints accept GET (query params) and POST (JSON body).
 | `/{token}/search` | `query`, `path` | Full-text search |
 | `/{token}/destroy` | — | Delete token and all data |
 
-## MCP Mode (Self-Hosted)
+## MCP Integration
 
-When self-hosting, connect AI tools directly via MCP stdio. Add to Claude Code config:
+**Hosted service** — uses Streamable HTTP transport, no install needed:
+
+```json
+{
+  "mcpServers": {
+    "noteforai": {
+      "type": "streamable-http",
+      "url": "https://noteforai.com/YOUR_TOKEN/mcp"
+    }
+  }
+}
+```
+
+**Self-hosted** — uses stdio transport:
 
 ```json
 {
@@ -107,7 +121,7 @@ When self-hosting, connect AI tools directly via MCP stdio. Add to Claude Code c
 }
 ```
 
-Provides 11 tools: write, read, append, delete, list, tree, search, history, diff, revert, deleted.
+Both provide 11 tools: write, read, append, delete, list, tree, search, history, diff, revert, deleted.
 
 ## Architecture
 
