@@ -1,0 +1,12 @@
+services:
+  noteforai:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - noteforai-data:/data
+    environment:
+      - PORT=8080
+
+volumes:
+  noteforai-data:

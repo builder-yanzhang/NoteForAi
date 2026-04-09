@@ -1,0 +1,17 @@
+[Unit]
+Description=NoteForAI - AI Note System
+After=network.target
+
+[Service]
+Type=simple
+User=yerik
+WorkingDirectory=/home/yerik/noteforai
+ExecStart=/home/yerik/noteforai/noteforai-linux serve
+Environment=PORT=443
+Environment=DATA_DIR=/home/yerik/noteforai/data
+Environment=QUOTA_MB=500
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

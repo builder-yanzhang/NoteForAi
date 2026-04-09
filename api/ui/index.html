@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title data-i18n="page.title">NoteForAI — 给 AI 一个专属笔记本</title>
+<meta name="description" content="NoteForAI: AI 专属笔记系统。API: POST /{token}/{action}, 操作: write/read/append/delete/search/tree/history。支持 HTTP + MCP 双协议，Git 版本保护，数据完全属于你。">
+<script src="/i18n.js?v=3"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+*{font-family:'Inter',sans-serif;}
+.g{background:linear-gradient(135deg,#6366F1,#8B5CF6);}
+.gradient-text{background:linear-gradient(135deg,#6366F1,#8B5CF6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.feature-card{transition:all 0.2s;}.feature-card:hover{transform:translateY(-3px);box-shadow:0 12px 40px rgba(99,102,241,0.1);}
+.tab-btn.active{background:#6366F1;color:white;}.tab-btn{transition:all 0.15s;cursor:pointer;}
+.modal-overlay{backdrop-filter:blur(6px);}
+@keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+.modal-box{animation:slideUp 0.2s ease;}
+code,pre{font-family:'JetBrains Mono','Fira Code',monospace;}
+.ai-pill{transition:all 0.15s;}.ai-pill:hover{transform:scale(1.03);}
+.sovereignty-card{transition:all 0.2s;}.sovereignty-card:hover{border-color:#6366F1;box-shadow:0 0 0 3px rgba(99,102,241,0.06);}
+.endpoint-row{transition:background 0.1s;}.endpoint-row:hover{background:#F5F3FF;}
+</style>
+</head>
+<body class="bg-white text-gray-900 antialiased">
+
+<!-- NAV -->
+<nav class="fixed top-0 w-full bg-white/90 backdrop-blur border-b border-gray-100 z-50">
+  <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+    <a href="/" class="flex items-center gap-2 no-underline">
+      <div class="w-8 h-8 g rounded-xl flex items-center justify-center shadow-sm"><span class="text-white font-black text-sm">N</span></div>
+      <span class="font-bold text-lg tracking-tight text-gray-900">NoteForAI</span>
+      <span class="ml-1 text-xs bg-indigo-50 text-indigo-600 border border-indigo-100 px-2 py-0.5 rounded-full font-medium">v2.0</span>
+    </a>
+    <div class="hidden md:flex items-center gap-8 text-sm text-gray-500">
+      <a href="#start" class="hover:text-gray-900 transition-colors" data-i18n="nav.start">上手</a>
+      <a href="#integration" class="hover:text-gray-900 transition-colors" data-i18n="nav.integration">接入</a>
+      <a href="#features" class="hover:text-gray-900 transition-colors" data-i18n="nav.features">功能</a>
+      <a href="#api" class="hover:text-gray-900 transition-colors" data-i18n="nav.api">API</a>
+    </div>
+    <div class="flex items-center gap-3">
+      <select id="lang-select" onchange="I18N.switchTo(this.value)" class="bg-gray-100 rounded-lg px-2 py-1.5 text-xs border-0 outline-none cursor-pointer">
+        <option value="zh-CN">中文</option><option value="zh-TW">繁體</option><option value="en">English</option>
+        <option value="ja">日本語</option><option value="ko">한국어</option><option value="es">Español</option>
+        <option value="fr">Français</option><option value="de">Deutsch</option><option value="pt">Português</option>
+        <option value="ru">Русский</option><option value="it">Italiano</option><option value="tr">Türkçe</option>
+        <option value="pl">Polski</option><option value="ar">العربية</option><option value="vi">Tiếng Việt</option>
+        <option value="th">ไทย</option><option value="id">Indonesia</option><option value="uk">Українська</option>
+      </select>
+      <a href="dashboard.html" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm" data-i18n-html="nav.dashboard">管理面板 &rarr;</a>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="g pt-28 pb-24 px-6 relative overflow-hidden">
+  <div class="absolute inset-0 bg-black/5"></div>
+  <div class="absolute top-10 right-10 w-96 h-96 bg-white/5 rounded-full blur-3xl"></div>
+  <div class="max-w-5xl mx-auto relative z-10">
+    <div class="grid md:grid-cols-2 gap-12 items-center">
+      <div>
+        <div class="inline-flex items-center gap-2 bg-white/20 text-white text-xs font-medium px-3 py-1.5 rounded-full mb-6 backdrop-blur-sm">
+          <span class="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>
+          <span data-i18n="hero.badge">现已支持 Git 版本保护 + 导出</span>
+        </div>
+        <h1 class="text-5xl font-extrabold text-white leading-tight mb-5 tracking-tight" data-i18n-html="hero.title">
+          给 AI 一个<br>专属笔记本
+        </h1>
+        <p class="text-white/80 text-lg leading-relaxed mb-3" data-i18n="hero.subtitle">换 AI 不换记忆 · 改了能撤回 · 数据随时带走</p>
+        <p class="text-white/50 text-sm leading-relaxed mb-8" data-i18n="hero.techLine">HTTP + MCP 双协议 · Git 版本保护 · 全文搜索 · 一个 Token 接入任意 AI</p>
+        <div class="flex gap-3">
+          <button onclick="openModal()" class="bg-white text-indigo-600 font-bold px-7 py-3.5 rounded-2xl shadow-lg hover:shadow-xl transition-all hover:-translate-y-0.5" data-i18n="hero.cta.create">免费创建 Token</button>
+          <a href="dashboard.html" class="bg-white/15 text-white font-semibold px-7 py-3.5 rounded-2xl border border-white/20 hover:bg-white/25 transition-all backdrop-blur-sm" data-i18n="hero.cta.dashboard">管理面板</a>
+        </div>
+      </div>
+      <!-- Before/After cards -->
+      <div class="space-y-3">
+        <div class="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-5">
+          <div class="flex items-center gap-2 mb-3"><span class="text-xs font-medium text-red-200 bg-red-400/20 px-2 py-0.5 rounded-full" data-i18n="hero.before.label">&#10060; 没有 NoteForAI</span></div>
+          <div class="space-y-2">
+            <div class="bg-white/10 rounded-xl p-3 text-xs text-white/70" data-i18n="hero.before.user">用户：我是做 AI 产品的，上次说过我偏好简洁风格...</div>
+            <div class="bg-red-400/10 rounded-xl p-3 text-xs text-red-200" data-i18n="hero.before.ai">AI：抱歉，我没有上次对话的记录。能再介绍一下您的背景吗？</div>
+          </div>
+          <p class="text-xs text-white/40 mt-2" data-i18n="hero.before.note">每次对话都要重新介绍自己</p>
+        </div>
+        <div class="bg-white/15 backdrop-blur-md rounded-2xl border border-white/30 p-5">
+          <div class="flex items-center gap-2 mb-3"><span class="text-xs font-medium text-green-200 bg-green-400/20 px-2 py-0.5 rounded-full" data-i18n="hero.after.label">&#10004; 有 NoteForAI</span></div>
+          <div class="space-y-2">
+            <div class="bg-white/10 rounded-xl p-3 text-xs text-white/70" data-i18n="hero.after.user">用户：帮我优化一下这个设计</div>
+            <div class="bg-green-400/10 rounded-xl p-3 text-xs text-green-200" data-i18n="hero.after.ai">AI：好的！根据你之前说的偏好简洁风格，以及你正在做的 NoteForAI 重构项目，我建议...</div>
+          </div>
+          <p class="text-xs text-white/50 mt-2" data-i18n="hero.after.note">像老朋友一样，记得你的一切</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- AI COMPAT -->
+<section id="pain" class="py-14 px-6 bg-gray-50 border-b border-gray-100">
+  <div class="max-w-4xl mx-auto text-center">
+    <p class="text-sm text-gray-400 font-medium uppercase tracking-wider mb-6" data-i18n="compat.title">兼容你正在使用的任何 AI 工具</p>
+    <div class="flex flex-wrap justify-center gap-3 mb-5">
+      <div class="ai-pill bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium shadow-sm flex items-center gap-2" data-i18n="compat.claude">&#129302; Claude</div>
+      <div class="ai-pill bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium shadow-sm flex items-center gap-2" data-i18n="compat.chatgpt">&#128172; ChatGPT</div>
+      <div class="ai-pill bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium shadow-sm flex items-center gap-2" data-i18n="compat.gemini">&#10024; Gemini</div>
+      <div class="ai-pill bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium shadow-sm flex items-center gap-2" data-i18n="compat.cursor">&#128433; Cursor</div>
+      <div class="ai-pill bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium shadow-sm flex items-center gap-2" data-i18n="compat.copilot">&#128187; Copilot</div>
+      <div class="ai-pill bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium shadow-sm flex items-center gap-2" data-i18n="compat.perplexity">&#128302; Perplexity</div>
+      <div class="ai-pill bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium shadow-sm flex items-center gap-2" data-i18n="compat.chinese">&#127775; 通义/文心</div>
+      <div class="ai-pill bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-2.5 text-sm font-medium text-indigo-600 flex items-center gap-2" data-i18n="compat.any">+ 任意 AI 工具</div>
+    </div>
+    <p class="text-gray-400 text-sm" data-i18n="compat.note">不绑定平台 · 换 AI 工具不换记忆 · HTTP 接口通用</p>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section id="start" class="py-20 px-6">
+  <div class="max-w-4xl mx-auto">
+    <div class="text-center mb-14"><h2 class="text-3xl font-bold mb-4" data-i18n="steps.title">三步上手</h2><p class="text-gray-500" data-i18n="steps.subtitle">5 分钟完成接入，立即让 AI 拥有记忆</p></div>
+    <div class="grid md:grid-cols-3 gap-8">
+      <div class="text-center"><div class="w-14 h-14 g text-white rounded-2xl flex items-center justify-center text-xl font-bold mx-auto mb-4 shadow-md">1</div><h3 class="font-semibold mb-2" data-i18n="steps.1.title">创建 Token</h3><p class="text-gray-500 text-sm leading-relaxed" data-i18n="steps.1.desc">点击上方按钮一键生成，无需注册，立即可用</p></div>
+      <div class="text-center"><div class="w-14 h-14 g text-white rounded-2xl flex items-center justify-center text-xl font-bold mx-auto mb-4 shadow-md">2</div><h3 class="font-semibold mb-2" data-i18n="steps.2.title">复制提示词到 AI</h3><p class="text-gray-500 text-sm leading-relaxed" data-i18n="steps.2.desc">创建后自动生成完整提示词，复制粘贴到 AI 系统提示即可</p></div>
+      <div class="text-center"><div class="w-14 h-14 g text-white rounded-2xl flex items-center justify-center text-xl font-bold mx-auto mb-4 shadow-md">3</div><h3 class="font-semibold mb-2" data-i18n="steps.3.title">开始对话</h3><p class="text-gray-500 text-sm leading-relaxed" data-i18n="steps.3.desc">AI 自动记忆，下次对话直接回顾，像老朋友一样</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- INTEGRATION -->
+<section id="integration" class="py-20 px-6 bg-gray-50">
+  <div class="max-w-4xl mx-auto">
+    <div class="text-center mb-12"><h2 class="text-3xl font-bold mb-4" data-i18n="integration.title">接入方式</h2><p class="text-gray-500" data-i18n="integration.subtitle">提示词复制即用 · MCP 一键配置 · API 直接调用</p></div>
+    <div class="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+      <div class="flex p-1.5 gap-1 bg-gray-50 border-b border-gray-100">
+        <button class="tab-btn active text-sm font-medium px-4 py-2 rounded-lg" onclick="switchTab('p',this)" data-i18n="integration.tab.prompt">AI 提示词</button>
+        <button class="tab-btn text-sm font-medium px-4 py-2 rounded-lg text-gray-500" onclick="switchTab('m',this)" data-i18n="integration.tab.mcp">MCP 配置</button>
+        <button class="tab-btn text-sm font-medium px-4 py-2 rounded-lg text-gray-500" onclick="switchTab('c',this)" data-i18n="integration.tab.curl">curl 示例</button>
+      </div>
+      <div id="tab-p" class="tab-content">
+        <div class="bg-gray-900 p-5 relative">
+          <button onclick="copyCode('pc')" class="absolute top-4 right-4 text-xs text-gray-400 hover:text-white bg-gray-700 px-3 py-1.5 rounded-md" data-i18n="copy">复制</button>
+          <pre id="pc" class="text-sm text-gray-300 leading-6 whitespace-pre-wrap"><code id="prompt-code"></code></pre>
+        </div>
+        <div class="px-5 py-3 bg-gray-50 border-t border-gray-100 text-xs text-gray-400" data-i18n="integration.hint.prompt">创建 Token 后，提示词会自动填入你的真实接口地址和 Token，零修改直接复制使用</div>
+      </div>
+      <div id="tab-m" class="tab-content hidden">
+        <div class="bg-gray-900 p-5 relative">
+          <button onclick="copyCode('mc')" class="absolute top-4 right-4 text-xs text-gray-400 hover:text-white bg-gray-700 px-3 py-1.5 rounded-md" data-i18n="copy">复制</button>
+          <pre id="mc" class="text-sm text-gray-300 leading-6 whitespace-pre-wrap"><code id="mcp-code"></code></pre>
+        </div>
+        <div class="px-5 py-3 bg-gray-50 border-t border-gray-100 text-xs text-gray-400" data-i18n="integration.hint.mcp">适用于 Claude Desktop / Claude Code。将 nfa_your_token 替换为你的 Token，保存到 claude_desktop_config.json</div>
+      </div>
+      <div id="tab-c" class="tab-content hidden">
+        <div class="bg-gray-900 p-5 relative">
+          <button onclick="copyCode('cc')" class="absolute top-4 right-4 text-xs text-gray-400 hover:text-white bg-gray-700 px-3 py-1.5 rounded-md" data-i18n="copy">复制</button>
+          <pre id="cc" class="text-sm text-gray-300 leading-6 whitespace-pre-wrap"><code id="curl-code"></code></pre>
+        </div>
+        <div class="px-5 py-3 bg-gray-50 border-t border-gray-100 text-xs text-gray-400" data-i18n="integration.hint.curl">所有接口支持 GET (query param) 和 POST (JSON body) 两种方式</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- AI BEHAVIOR EXAMPLE -->
+<section class="py-16 px-6">
+  <div class="max-w-4xl mx-auto">
+    <div class="text-center mb-10"><h2 class="text-2xl font-bold mb-3" data-i18n="aiBehavior.title">配置后 AI 会怎么工作？</h2><p class="text-gray-500 text-sm" data-i18n="aiBehavior.subtitle">以下是 AI 在对话开始时的真实行为</p></div>
+    <div id="ai-behavior-demo" class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden"></div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features" class="py-20 px-6 bg-gray-50">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-14">
+      <h2 class="text-3xl font-bold mb-4" data-i18n="features.title">为 AI 笔记原生设计</h2>
+      <p class="text-gray-500" data-i18n="features.subtitle">每个细节都在让 AI 更好地管理和使用你的信息</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+      <div class="feature-card bg-white rounded-2xl border border-gray-100 p-6 shadow-sm"><div class="text-2xl mb-3">&#128221;</div><h3 class="font-semibold mb-2" data-i18n="features.storage.title">持久存储</h3><p class="text-gray-500 text-sm leading-relaxed" data-i18n="features.storage.desc">笔记跨对话永久保存，AI 随时调取，永不遗忘</p></div>
+      <div class="feature-card bg-white rounded-2xl border border-gray-100 p-6 shadow-sm"><div class="text-2xl mb-3">&#128269;</div><h3 class="font-semibold mb-2" data-i18n="features.search.title">全文搜索</h3><p class="text-gray-500 text-sm leading-relaxed" data-i18n="features.search.desc">中英文分词，毫秒级检索，精准定位任何信息</p></div>
+      <div class="feature-card bg-white rounded-2xl border border-gray-100 p-6 shadow-sm"><div class="text-2xl mb-3">&#128450;</div><h3 class="font-semibold mb-2" data-i18n="features.hierarchy.title">目录层级</h3><p class="text-gray-500 text-sm leading-relaxed" data-i18n="features.hierarchy.desc">文件夹式路径分层，AI 自主管理结构，清晰有序</p></div>
+      <div class="feature-card border-2 border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-purple-50/60 rounded-2xl p-6 shadow-sm relative overflow-hidden">
+        <div class="text-2xl mb-3">&#128256;</div>
+        <h3 class="font-semibold mb-2" data-i18n="features.git.title">Git 版本保护</h3>
+        <p class="text-gray-500 text-sm leading-relaxed" data-i18n="features.git.desc">每次修改自动快照，误删可恢复，完整历史回溯</p>
+      </div>
+      <div class="feature-card border-2 border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-purple-50/60 rounded-2xl p-6 shadow-sm relative overflow-hidden">
+        <div class="text-2xl mb-3">&#128228;</div>
+        <h3 class="font-semibold mb-2" data-i18n="features.export.title">一键导出</h3>
+        <p class="text-gray-500 text-sm leading-relaxed" data-i18n="features.export.desc">ZIP / JSON / Markdown，随时迁移，不被锁定</p>
+      </div>
+      <div class="feature-card bg-white rounded-2xl border border-gray-100 p-6 shadow-sm"><div class="text-2xl mb-3">&#9889;</div><h3 class="font-semibold mb-2" data-i18n="features.protocol.title">MCP + HTTP</h3><p class="text-gray-500 text-sm leading-relaxed" data-i18n="features.protocol.desc">双协议支持，Claude Code MCP 原生集成，HTTP 通用接入</p></div>
+      <div class="feature-card bg-white rounded-2xl border border-gray-100 p-6 shadow-sm"><div class="text-2xl mb-3">&#128274;</div><h3 class="font-semibold mb-2" data-i18n="features.token.title">Token 隔离</h3><p class="text-gray-500 text-sm leading-relaxed" data-i18n="features.token.desc">每个 Token 独立空间，无需账号，完全私密</p></div>
+      <div class="feature-card bg-white rounded-2xl border border-gray-100 p-6 shadow-sm"><div class="text-2xl mb-3">&#128187;</div><h3 class="font-semibold mb-2" data-i18n="features.ui.title">管理面板</h3><p class="text-gray-500 text-sm leading-relaxed" data-i18n="features.ui.desc">文件管理器式 Web UI，浏览、编辑、搜索、版本回溯</p></div>
+      <div class="feature-card bg-white rounded-2xl border border-gray-100 p-6 shadow-sm"><div class="text-2xl mb-3">&#127968;</div><h3 class="font-semibold mb-2" data-i18n="features.selfhost.title">可自部署</h3><p class="text-gray-500 text-sm leading-relaxed" data-i18n="features.selfhost.desc">Go 单文件编译，Docker 一键部署，数据主权完全在手</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- API TABLE -->
+<section id="api" class="py-20 px-6 bg-gray-50">
+  <div class="max-w-4xl mx-auto">
+    <h2 class="text-3xl font-bold mb-3" data-i18n="api.title">API 参考</h2>
+    <p class="text-gray-500 mb-8 text-sm"><span data-i18n="api.subtitle.pre">格式：</span><code class="text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">POST /{token}/{action}</code><span data-i18n="api.subtitle.post"> + JSON body，也支持 GET query param</span></p>
+    <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+      <div class="grid grid-cols-12 px-5 py-3 bg-gray-50 text-xs text-gray-400 font-semibold uppercase tracking-wider border-b border-gray-100">
+        <div class="col-span-2" data-i18n="api.col.op">操作</div><div class="col-span-4" data-i18n="api.col.desc">说明</div><div class="col-span-6" data-i18n="api.col.params">参数</div>
+      </div>
+      <div class="endpoint-row grid grid-cols-12 px-5 py-3.5 border-b border-gray-50 text-sm"><div class="col-span-2"><code class="text-indigo-600 font-semibold">write</code></div><div class="col-span-4 text-gray-600" data-i18n="api.write">新建或覆盖</div><div class="col-span-6"><code class="text-gray-400 text-xs">{"path":"...","content":"..."}</code></div></div>
+      <div class="endpoint-row grid grid-cols-12 px-5 py-3.5 border-b border-gray-50 text-sm"><div class="col-span-2"><code class="text-indigo-600 font-semibold">append</code></div><div class="col-span-4 text-gray-600" data-i18n="api.append">追加内容</div><div class="col-span-6"><code class="text-gray-400 text-xs">{"path":"...","content":"..."}</code></div></div>
+      <div class="endpoint-row grid grid-cols-12 px-5 py-3.5 border-b border-gray-50 text-sm"><div class="col-span-2"><code class="text-indigo-600 font-semibold">read</code></div><div class="col-span-4 text-gray-600" data-i18n="api.read">读取笔记</div><div class="col-span-6"><code class="text-gray-400 text-xs">{"path":"..."} 或 ?path=...</code></div></div>
+      <div class="endpoint-row grid grid-cols-12 px-5 py-3.5 border-b border-gray-50 text-sm"><div class="col-span-2"><code class="text-indigo-600 font-semibold">search</code></div><div class="col-span-4 text-gray-600" data-i18n="api.search">全文搜索</div><div class="col-span-6"><code class="text-gray-400 text-xs">{"query":"..."} 或 ?q=...</code></div></div>
+      <div class="endpoint-row grid grid-cols-12 px-5 py-3.5 border-b border-gray-50 text-sm"><div class="col-span-2"><code class="text-indigo-600 font-semibold">tree</code></div><div class="col-span-4 text-gray-600" data-i18n="api.tree">目录树</div><div class="col-span-6"><code class="text-gray-400 text-xs">{"path":""}</code></div></div>
+      <div class="endpoint-row grid grid-cols-12 px-5 py-3.5 border-b border-gray-50 text-sm"><div class="col-span-2"><code class="text-indigo-600 font-semibold">history</code></div><div class="col-span-4 text-gray-600" data-i18n="api.history">版本历史</div><div class="col-span-6"><code class="text-gray-400 text-xs">{"path":"...","limit":20}</code></div></div>
+      <div class="endpoint-row grid grid-cols-12 px-5 py-3.5 text-sm"><div class="col-span-2"><code class="text-red-400 font-semibold">delete</code></div><div class="col-span-4 text-gray-600" data-i18n="api.delete">删除（入回收站）</div><div class="col-span-6"><code class="text-gray-400 text-xs">{"path":"..."}</code></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- DATA SOVEREIGNTY -->
+<section id="data" class="py-20 px-6">
+  <div class="max-w-4xl mx-auto">
+    <div class="text-center mb-12">
+      <h2 class="text-3xl font-bold mb-4" data-i18n="data.title">你的数据，永远属于你</h2>
+      <p class="text-gray-500 max-w-xl mx-auto leading-relaxed" data-i18n="data.subtitle">不同于其他平台的黑盒记忆，NoteForAI 让你对数据拥有完全的控制权</p>
+    </div>
+    <div class="grid md:grid-cols-3 gap-5">
+      <div class="sovereignty-card bg-white rounded-2xl border border-gray-200 p-6 transition-all">
+        <div class="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-2xl mb-3">&#128065;</div>
+        <h3 class="font-semibold mb-2" data-i18n="data.transparent.title">完全透明</h3>
+        <p class="text-gray-500 text-sm leading-relaxed" data-i18n="data.transparent.desc">管理面板中可查看所有笔记内容，没有任何黑盒，数据完全可见</p>
+      </div>
+      <div class="sovereignty-card bg-white rounded-2xl border border-gray-200 p-6 transition-all">
+        <div class="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-2xl mb-3">&#128228;</div>
+        <h3 class="font-semibold mb-2" data-i18n="data.export.title">随时导出</h3>
+        <p class="text-gray-500 text-sm leading-relaxed" data-i18n="data.export.desc">一键导出全部笔记为 Markdown、ZIP 或 JSON，随时迁移，不被平台绑架</p>
+      </div>
+      <div class="sovereignty-card bg-white rounded-2xl border border-gray-200 p-6 transition-all">
+        <div class="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-2xl mb-3">&#128256;</div>
+        <h3 class="font-semibold mb-2" data-i18n="data.version.title">版本回溯</h3>
+        <p class="text-gray-500 text-sm leading-relaxed" data-i18n="data.version.desc">Git 驱动版本管理，每次修改留痕，误删可恢复，30 天历史完整保存</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- EMAIL -->
+<section id="email" class="py-24 px-6 bg-gray-50">
+  <div class="max-w-lg mx-auto text-center">
+    <div class="w-16 h-16 g rounded-2xl flex items-center justify-center text-3xl mx-auto mb-5 shadow-lg">&#9993;&#65039;</div>
+    <h2 class="text-3xl font-bold mb-4" data-i18n="email.title">配置发送到邮箱</h2>
+    <p class="text-gray-500 mb-8 leading-relaxed" data-i18n="email.desc">Token、提示词、接入指南一键发送，随时找回</p>
+    <div class="bg-white rounded-2xl border border-gray-100 p-2 flex gap-2 shadow-sm">
+      <input id="email-input" type="email" class="flex-1 px-4 py-3 text-sm bg-transparent focus:outline-none rounded-xl" data-i18n-placeholder="email.placeholder" placeholder="your@email.com">
+      <button onclick="sendEmail()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 py-3 rounded-xl transition-colors" data-i18n="email.send">发送</button>
+    </div>
+    <div id="email-ok" class="hidden mt-4 text-indigo-600 text-sm font-medium" data-i18n="email.sent">&#10003; 已发送！请检查邮箱</div>
+    <p class="text-xs text-gray-400 mt-4" data-i18n="email.hint">通过本机邮件客户端发送，不经过服务器</p>
+  </div>
+</section>
+
+<footer class="border-t border-gray-100 py-10 px-6">
+  <div class="max-w-6xl mx-auto flex items-center justify-between">
+    <div class="flex items-center gap-2"><div class="w-7 h-7 g rounded-lg flex items-center justify-center"><span class="text-white font-black text-xs">N</span></div><span class="font-semibold">NoteForAI</span><span class="text-gray-300 mx-2">&middot;</span><span class="text-sm text-gray-400" data-i18n="footer.tagline">AI 专属笔记本</span></div>
+    <div class="flex gap-6 text-sm text-gray-400"><a href="dashboard.html" class="hover:text-gray-600" data-i18n="footer.dashboard">管理面板</a><span>&copy; 2026 NoteForAI</span></div>
+  </div>
+</footer>
+
+<!-- MODAL -->
+<div id="modal" class="hidden fixed inset-0 modal-overlay bg-black/40 z-50 flex items-center justify-center px-4">
+  <div class="modal-box bg-white rounded-2xl shadow-2xl max-w-lg w-full p-8">
+    <div id="step1">
+      <div class="flex items-center justify-between mb-6"><div class="flex items-center gap-3"><div class="w-10 h-10 g rounded-xl flex items-center justify-center text-lg shadow-sm">&#128273;</div><h3 class="text-xl font-bold" data-i18n="modal.step1.heading">你的专属 Token</h3></div><button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button></div>
+      <div class="bg-indigo-50 rounded-xl border border-indigo-100 p-4 mb-4">
+        <p class="text-xs text-gray-400 mb-2 uppercase tracking-wider font-medium" data-i18n="modal.step1.tokenLabel">TOKEN</p>
+        <div class="flex items-center gap-3"><code id="generated-token" class="text-sm text-indigo-700 font-semibold flex-1 break-all"></code><button onclick="copyToken()" class="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 shrink-0" data-i18n="copy">复制</button></div>
+      </div>
+      <p class="text-sm text-gray-500 mb-5" data-i18n="modal.step1.note">妥善保存此 Token，它是你笔记空间的唯一凭证。</p>
+      <button onclick="nextStep()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl transition-colors" data-i18n="modal.step1.next">下一步：配置 AI &rarr;</button>
+    </div>
+    <div id="step2" class="hidden">
+      <div class="flex items-center justify-between mb-6"><h3 class="text-xl font-bold" data-i18n="modal.step2.heading">配置到 AI</h3><button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button></div>
+      <div class="bg-gray-900 rounded-xl p-4 mb-4 max-h-40 overflow-hidden relative"><pre id="prompt-preview" class="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed"></pre><div class="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-gray-900"></div></div>
+      <div class="flex gap-3 mb-3">
+        <button onclick="copyPrompt()" class="flex-1 border border-gray-200 text-gray-700 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50" data-i18n="modal.step2.copyPrompt">复制提示词</button>
+        <button onclick="goEmail()" class="flex-1 border border-indigo-200 text-indigo-700 text-sm font-medium py-2.5 rounded-xl hover:bg-indigo-50" data-i18n="modal.step2.emailBtn">&#9993;&#65039; 发到邮箱</button>
+      </div>
+      <a id="goto-dashboard" href="dashboard.html" class="block w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl text-center transition-colors" data-i18n="modal.step2.dashboard">进入管理面板 &rarr;</a>
+    </div>
+  </div>
+</div>
+
+<script>
+const API_BASE=location.origin;
+let currentToken='';
+
+function updateLangSwitcher() {
+  document.getElementById('lang-select').value = I18N.lang;
+}
+
+function generateToken(){const c='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';let r='nfa_';for(let i=0;i<32;i++)r+=c[Math.floor(Math.random()*c.length)];return r;}
+async function openModal(){
+  try{const r=await fetch(API_BASE+'/create_token',{method:'POST'});const d=await r.json();currentToken=d.token;}catch(e){currentToken=generateToken();}
+  document.getElementById('generated-token').textContent=currentToken;document.getElementById('step1').classList.remove('hidden');document.getElementById('step2').classList.add('hidden');document.getElementById('modal').classList.remove('hidden');
+}
+function closeModal(){document.getElementById('modal').classList.add('hidden');}
+function copyToken(){navigator.clipboard.writeText(currentToken);const b=event.target;b.textContent=I18N.t('copied');setTimeout(()=>b.textContent=I18N.t('copy'),1500);}
+function nextStep(){
+  document.getElementById('prompt-preview').textContent=I18N.t('prompt.short',{base:API_BASE,token:currentToken});
+  document.getElementById('goto-dashboard').href=`dashboard.html?token=${currentToken}`;
+  document.getElementById('step1').classList.add('hidden');document.getElementById('step2').classList.remove('hidden');
+  fillIntegrationCode();
+}
+function copyPrompt(){navigator.clipboard.writeText(document.getElementById('prompt-preview').textContent);const b=event.target;b.textContent=I18N.t('copied');setTimeout(()=>b.textContent=I18N.t('modal.step2.copyPrompt'),1500);}
+function goEmail(){closeModal();document.getElementById('email').scrollIntoView({behavior:'smooth'});}
+function switchTab(t,btn){document.querySelectorAll('.tab-content').forEach(e=>e.classList.add('hidden'));document.querySelectorAll('.tab-btn').forEach(e=>{e.classList.remove('active');e.classList.add('text-gray-500');});document.getElementById('tab-'+t).classList.remove('hidden');btn.classList.add('active');btn.classList.remove('text-gray-500');}
+function copyCode(id){navigator.clipboard.writeText(document.getElementById(id).innerText);const b=event.target;b.textContent=I18N.t('copied');setTimeout(()=>b.textContent=I18N.t('copy'),1500);}
+function sendEmail(){
+  const v=document.getElementById('email-input').value;
+  if(!v||!v.includes('@'))return;
+  const tok=currentToken||localStorage.getItem('noteforai_token')||'(N/A)';
+  const subject=encodeURIComponent(I18N.t('email.subject'));
+  const promptText=I18N.t('prompt.short',{base:API_BASE,token:tok});
+  const body=encodeURIComponent(`NoteForAI\n\nToken: ${tok}\nEndpoint: ${API_BASE}/${tok}/\n\n${promptText}\n\nMCP:\n${JSON.stringify({mcpServers:{noteforai:{type:"streamable-http",url:`${API_BASE}/${tok}/mcp`}}},null,2)}\n\nDashboard: ${API_BASE}/dashboard.html?token=${tok}`);
+  window.open(`mailto:${v}?subject=${subject}&body=${body}`);
+  document.getElementById('email-ok').classList.remove('hidden');
+  document.getElementById('email-input').value='';
+  setTimeout(()=>document.getElementById('email-ok').classList.add('hidden'),5000);
+}
+document.getElementById('modal').addEventListener('click',function(e){if(e.target===this)closeModal();});
+
+function renderAiBehavior() {
+  const t = k => I18N.t(k);
+  document.getElementById('ai-behavior-demo').innerHTML = `
+    <div class="bg-gray-50 border-b border-gray-100 px-5 py-3 flex items-center gap-2"><div class="w-2 h-2 bg-green-400 rounded-full"></div><span class="text-xs text-gray-500 font-medium">${t('aiBehavior.sessionStart')}</span></div>
+    <div class="p-5 space-y-3">
+      <div class="flex gap-3"><div class="w-7 h-7 bg-indigo-100 rounded-lg flex items-center justify-center shrink-0"><span class="text-xs font-bold text-indigo-600">AI</span></div><div class="bg-gray-50 rounded-xl p-3 text-sm text-gray-600 flex-1"><code class="text-indigo-500 text-xs">tree()</code> <span class="text-gray-400">${t('aiBehavior.treeComment')}</span><pre class="mt-2 text-xs text-gray-400">${t('aiBehavior.treeOutput')}</pre></div></div>
+      <div class="flex gap-3"><div class="w-7 h-7 bg-indigo-100 rounded-lg flex items-center justify-center shrink-0"><span class="text-xs font-bold text-indigo-600">AI</span></div><div class="bg-gray-50 rounded-xl p-3 text-sm text-gray-600 flex-1"><code class="text-indigo-500 text-xs">${t('aiBehavior.readCall')}</code> <span class="text-gray-400">${t('aiBehavior.readComment')}</span></div></div>
+      <div class="flex gap-3"><div class="w-7 h-7 bg-indigo-100 rounded-lg flex items-center justify-center shrink-0"><span class="text-xs font-bold text-indigo-600">AI</span></div><div class="bg-green-50 rounded-xl p-3 text-sm text-gray-600 flex-1">${t('aiBehavior.greeting')}</div></div>
+      <div class="border-t border-dashed border-gray-100 pt-3 flex gap-3"><div class="w-7 h-7 bg-gray-100 rounded-lg flex items-center justify-center shrink-0"><span class="text-xs text-gray-500">${t('aiBehavior.userLabel')}</span></div><div class="text-sm text-gray-500">${t('aiBehavior.userNote')}</div></div>
+    </div>`;
+}
+
+function fillIntegrationCode() {
+  const base = API_BASE;
+  const tok = currentToken || localStorage.getItem('noteforai_token') || 'nfa_your_token';
+  document.getElementById('prompt-code').textContent = I18N.t('prompt.full', {base, token: tok});
+  document.getElementById('mcp-code').textContent = JSON.stringify({mcpServers:{noteforai:{type:'streamable-http',url: base+'/'+tok+'/mcp'}}}, null, 2);
+  document.getElementById('curl-code').textContent = I18N.t('curl.examples', {base, token: tok});
+}
+
+// Init i18n
+I18N.init();
+I18N.apply();
+updateLangSwitcher();
+fillIntegrationCode();
+renderAiBehavior();
+
+window.addEventListener('langchange', () => {
+  updateLangSwitcher();
+  document.title = I18N.t('page.title');
+  fillIntegrationCode();
+  renderAiBehavior();
+});
+</script>
+</body>
+</html>
