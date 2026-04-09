@@ -382,6 +382,7 @@ Settings → MCP Servers → 添加（JSON 格式）：
 | write | 新建或覆盖笔记 | {"path":"目录/文件.md","content":"# 标题\n内容"} |
 | append | 追加内容到末尾 | {"path":"日志/2025.md","content":"\n### YYYY-MM-DD\n- 事项"} |
 | read | 读取笔记 | {"path":"index.md"} |
+| list | 列出目录内容 | {"path":"目录/"} |
 | search | 全文搜索 | {"query":"关键词"} |
 | delete | 删除笔记 | {"path":"文件.md"} |
 | history | 版本历史 | {"path":"文件.md","limit":20} |
