@@ -1,83 +1,100 @@
 # NoteForAI
 
-**A persistent note system designed for AI.** File-system-like HTTP/MCP interface for AI to efficiently store and retrieve structured information.
+**Give your AI a notebook that never forgets.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Website](https://img.shields.io/badge/noteforai.com-live-brightgreen)](https://noteforai.com)
 
-**Try it now:** [noteforai.com](https://noteforai.com) — get a free token and start using it with your AI in seconds.
+## The Problem
 
-## Features
+Every AI conversation starts from scratch. Your AI forgets your preferences, loses project context, and makes you repeat yourself — every single time.
 
-- **7 file-system operations** — write / read / append / delete / list / tree / search
-- **Full-text search** — Bleve engine + CJK bigram tokenizer
-- **Multi-tenant isolation** — one token per user, fully isolated
-- **Dual protocol** — HTTP API + MCP stdio (direct AI connection)
-- **Git-based versioning** — history, diff, revert for every file
-- **Security** — 10MB body limit, path traversal protection, per-path locks, disk quota
-- **Zero-dependency storage** — file system only, no database
+## The Solution
 
-## Hosted Service
+NoteForAI gives AI a persistent, structured notebook. It works across conversations, across tools, across devices.
 
-Use NoteForAI without deploying anything:
+- **File-system-like API** — write, read, append, delete, list, tree, search
+- **Full-text search** — Bleve engine with CJK + multilingual support
+- **Multi-tenant** — one token per user, fully isolated
+- **Git versioning** — history, diff, revert for every file
+- **Dual protocol** — HTTP API + MCP stdio
+- **Self-hostable** — single binary, no database, your data stays yours
+
+## Try It in 30 Seconds
+
+No signup. No install. Just run:
 
 ```bash
-# Get your token
+# 1. Get your token
 curl -X POST https://noteforai.com/create_token
-# → {"token":"nfa_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+# → {"token":"nfa_abc123..."}
 
-# Write
-curl -X POST https://noteforai.com/nfa_xxx.../write \
+# 2. Save something
+curl -X POST https://noteforai.com/nfa_abc123.../write \
   -H 'Content-Type: application/json' \
-  -d '{"path":"hello.md","content":"# Hello World"}'
+  -d '{"path":"me.md","content":"# About Me\nI prefer concise code and dark themes."}'
 
-# Read
-curl -X POST https://noteforai.com/nfa_xxx.../read \
-  -H 'Content-Type: application/json' \
-  -d '{"path":"hello.md"}'
+# 3. Read it back (from any conversation, any device)
+curl -X POST https://noteforai.com/nfa_abc123.../read \
+  -d '{"path":"me.md"}'
 ```
 
-## Self-Hosted
+Now paste the API config into your AI tool (e.g. CLAUDE.md), and your AI remembers everything.
+
+## Use Cases
+
+**Claude Code / Cursor** — AI remembers your coding style, project decisions, and tech stack across sessions.
+
+**AI Agents** — Agents accumulate knowledge over time instead of starting cold every run.
+
+**Personal AI Assistant** — Store preferences, goals, contacts — your AI knows you like an old friend.
+
+## Two Ways to Use
+
+### Hosted (noteforai.com)
+
+Zero setup. Create a token and start calling the API. Free to use.
+
+### Self-Hosted
+
+Full control over your data. Single binary, no database.
 
 ```bash
+# Build and run
 go build -o noteforai .
 ./noteforai serve
-```
 
-Or with Docker:
-
-```bash
+# Or use Docker
 docker compose up --build
 ```
-
-Environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `8080` | Listen port |
 | `DATA_DIR` | `./data` | Data directory |
-| `QUOTA_MB` | `0` (unlimited) | Per-token disk quota (MB) |
+| `QUOTA_MB` | `0` | Per-token disk quota in MB (0 = unlimited) |
 | `TRASH_DAYS` | `30` | Soft-delete retention days |
 
-## API
+## API Reference
 
-All endpoints accept both GET (query params) and POST (JSON body).
+All endpoints accept GET (query params) and POST (JSON body).
 
 | Endpoint | Params | Description |
 |----------|--------|-------------|
-| `/create_token` | — | Create a new token |
-| `/{token}/write` | `path`, `content` | Write file |
-| `/{token}/read` | `path` | Read file |
-| `/{token}/append` | `path`, `content` | Append to file |
-| `/{token}/delete` | `path` | Delete file or directory |
-| `/{token}/list` | `path` | List directory |
+| `POST /create_token` | — | Get a new token |
+| `/{token}/write` | `path`, `content` | Create or overwrite a file |
+| `/{token}/read` | `path` | Read a file |
+| `/{token}/append` | `path`, `content` | Append to a file |
+| `/{token}/delete` | `path` | Delete a file or directory |
+| `/{token}/list` | `path` | List directory contents |
 | `/{token}/tree` | `path` | Recursive directory tree |
 | `/{token}/search` | `query`, `path` | Full-text search |
-| `/{token}/destroy` | — | Destroy token (soft delete) |
+| `/{token}/destroy` | — | Delete token and all data |
 
-## MCP Mode
+## MCP Mode (Self-Hosted)
 
-Connect directly from AI tools like Claude Code. Add to your MCP config (e.g. `~/.claude/claude_code_config.json`):
+When self-hosting, connect AI tools directly via MCP stdio. Add to Claude Code config:
 
 ```json
 {
@@ -90,21 +107,17 @@ Connect directly from AI tools like Claude Code. Add to your MCP config (e.g. `~
 }
 ```
 
-Or run standalone via stdio:
-
-```bash
-./noteforai mcp <token>
-```
+Provides 11 tools: write, read, append, delete, list, tree, search, history, diff, revert, deleted.
 
 ## Architecture
 
 ```
-main.go           CLI entry (serve / mcp)
-api/http.go       HTTP API + request logging + token validation
-api/mcp.go        MCP Server (stdio)
-store/store.go    Core: 7 operations, file system + indexer + locks + quota
+main.go           Entry point (serve / mcp)
+api/http.go       HTTP API + logging + validation
+api/mcp.go        MCP stdio server
+store/store.go    Core: file operations + indexer + locks + quota
 store/git.go      Git-based version control
-index/bleve.go    Bleve full-text index, CJK bigram tokenizer
+index/bleve.go    Full-text search (Bleve + CJK bigram)
 token/token.go    Token generation (nfa_ + 32 random chars)
 api/ui/           Embedded web UI (18 languages)
 ```
