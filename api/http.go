@@ -210,7 +210,7 @@ func initTokenFiles(s *store.Store, tok, baseURL string) {
 ## 📅 最近动态
 （待 AI 记录 — 格式：### YYYY-MM-DD，3-5 条要点，每条一句话）
 
-## 📚 参考教程
+## 📚 参考教程（仅供用户参考，AI 勿主动读取）
 - 教程/快速入门.md — 接入各类 AI 工具
 - 教程/接入/通用提示词.md — 适用于任意 AI 的提示词
 - 教程/使用技巧/记录规范.md — 何时记录、记什么、怎么写
