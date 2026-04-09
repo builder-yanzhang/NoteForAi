@@ -20,9 +20,11 @@ func NewMCPServer(s *store.Store, tok string) *server.MCPServer {
 		server.WithInstructions(`NoteForAI — AI 专属持久记忆系统，跨对话保存和检索信息。
 
 ## 启动流程
-每次对话开始，执行：read("index.md")
-这是记忆总索引，包含用户基本信息、当前项目、最近动态。
-直接读取索引即可，不需要先调用 tree()。
+每次对话开始：
+1. read("index.md")
+2. 若 index.md 包含「请先完成初始化」区块 →
+   在回应用户任何请求之前，先执行其中的引导流程
+3. 否则 → 正常对话，按下方规则记录
 
 ## 何时记录（无需用户明确要求）
 - 用户提到偏好、习惯、风格（"我喜欢简洁代码"）
