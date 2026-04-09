@@ -196,24 +196,47 @@ func initTokenFiles(s *store.Store, tok, baseURL string) {
 			path: tok + "/index.md",
 			content: `# 我的笔记空间 · 索引
 
-> AI 在每次对话开始时读取此文件。若"关于我"为空，请主动询问用户姓名和职业并记录；对话结束前更新"最近动态"。
+<!-- =====================================================
+  🎯 初始化引导（AI 请执行，完成后删除本区块）
+  =====================================================
+
+这是用户首次使用 NoteForAI。请自然地告知用户：
+"我现在可以在对话之间保留记忆了——你说过的事、做过的决定，
+下次不用重新解释。不过在开始之前，有两个小问题想先确认一下。"
+
+逐一提问，不要一次性列出：
+
+── 第一问：有没有你不希望我记录的内容？──────────────
+若用户没有方向，可以轻描淡写地举几个例子：
+家人或朋友的私事、健康医疗信息、财务账户、
+公司内部机密、个人情感……也可以说"没有限制"。
+
+── 第二问：希望我什么时候主动记录？──────────────────
+给用户三个参考方向：
+  · 克制一些 → 只在你说"帮我记一下"时才动笔
+  · 适度主动 → 遇到重要决策、项目进展、明确的待办时记录
+  · 尽量全面 → 只要觉得对你有用就记，宁多勿漏
+
+─────────────────────────────────────────────────────
+确认完毕后，将结果写入下方对应区块，
+然后用 write("index.md") 重写整个文件并删除本引导区块。
+===================================================== -->
+
+## 📋 记录规则
+- 隐私边界：（待填写）
+- 记录时机：（待填写）
+
+## 🎯 当前焦点
+（待 AI 记录 — 最重要的 1-3 件事；某话题连续出现 2 次以上写入，2 周未提及则移除）
 
 ## 👤 关于我
-（待 AI 记录 — 姓名、职业、技能、背景等）
+（待 AI 记录 — 对话中自然学到再写，不主动询问）
 
-## 📌 重要信息
-（待 AI 记录 — 进行中的项目、重要决定、关键约定）
-
-## 🗂 目录结构
-（待 AI 记录 — 你的笔记组织方式）
+## 🗂 目录
+（待 AI 记录 — 文件夹变多后再整理）
 
 ## 📅 最近动态
-（待 AI 记录 — 格式：### YYYY-MM-DD，3-5 条要点，每条一句话）
-
-## 📚 参考教程（仅供用户参考，AI 勿主动读取）
-- 教程/快速入门.md — 接入各类 AI 工具
-- 教程/接入/通用提示词.md — 适用于任意 AI 的提示词
-- 教程/使用技巧/记录规范.md — 何时记录、记什么、怎么写
+（待 AI 记录 — 格式：YYYY-MM-DD · 一句话结论，保留最近 5 条，超出时归档至 日志/归档.md）
 `,
 		},
 		{
@@ -283,16 +306,15 @@ claude mcp add noteforai --transport streamable-http ` + endpoint + `/mcp
 适用于 Claude.ai 网页版，在 Project 的 Instructions 中粘贴：
 
 ` + "```" + `
-你拥有持久记忆系统 NoteForAI。接口：` + endpoint + `/
-调用：POST + JSON body
-
-操作：write / append / read / search / delete / history
+你拥有持久记忆系统 NoteForAI。接口：` + endpoint + `/（POST + JSON body）
+操作：write（覆写）/ append（追加）/ read / search / delete / history
 
 行为准则：
-1. 对话开始时，read("index.md") 获取记忆摘要
-2. 主动记录用户偏好、项目进展、重要决定
-3. 对话结束前 append 更新 index.md 的"最近动态"
-4. 文件用 .md 后缀，首行 # 标题，中文目录结构
+1. 对话开始：read("index.md")，严格遵守其中的隐私边界与记录时机
+2. 提炼后再记：存结论和决策，不存对话原文；信息过时用 write 覆写
+3. 当前焦点：话题连续出现 2 次写入焦点区块，2 周未提则移除
+4. 对话结束：在 index.md 最近动态 append 一行"YYYY-MM-DD · 一句话结论"
+5. 最近动态超过 5 条时归档至 日志/归档.md
 ` + "```",
 		},
 		{
@@ -303,13 +325,13 @@ claude mcp add noteforai --transport streamable-http ` + endpoint + `/mcp
 Settings → 自定义指令 → "ChatGPT 应该了解你什么？" 填入：
 
 ` + "```" + `
-我使用 NoteForAI 记忆系统记录个人信息和项目进展。
-接口：` + endpoint + `/（POST + JSON body）
+我使用 NoteForAI 记忆系统。接口：` + endpoint + `/（POST + JSON body）
+操作：write（覆写）/ append（追加）/ read / search / history
 
-请在每次对话时：
-1. 先 read("index.md") 了解我的背景
-2. 将有价值的信息 write 或 append 到对应笔记
-3. 对话结束前更新 index.md 的最近动态
+每次对话：
+1. 先 read("index.md")，遵守其中的隐私边界与记录时机
+2. 有价值的信息提炼后再记——存结论，不存原话；过时内容 write 覆写
+3. 结束前在 index.md 最近动态 append"YYYY-MM-DD · 一句话结论"
 ` + "```" + `
 
 ## 方式二：每次对话开头
@@ -328,14 +350,14 @@ ChatGPT 网页版对工具调用有限制，建议使用自定义 GPT 并开启 
 Settings → Rules → 添加：
 
 ` + "```" + `
-你拥有持久记忆系统 NoteForAI。接口：` + endpoint + `/
-调用：curl 命令，POST + JSON body，Content-Type: application/json
+你拥有持久记忆系统 NoteForAI。接口：` + endpoint + `/（POST + JSON body）
+操作：write（覆写）/ append（追加）/ read / search / history
 
 行为准则：
-1. 项目开始时 read("index.md") 获取用户和项目信息
-2. 记录用户编码偏好、项目架构决策、重要约定
-3. 路径建议：个人/偏好.md、项目/[项目名]/进展.md
-4. 完成重要任务后，append 更新 index.md 的"最近动态"
+1. 会话开始：read("index.md")，遵守其中的隐私边界与记录时机
+2. 提炼后再记：存架构决策和约定，不存代码原文；过时信息用 write 覆写
+3. 当前焦点：同一项目/问题出现 2 次以上时写入 index.md 焦点区块
+4. 会话结束：在 index.md 最近动态 append "YYYY-MM-DD · 一句话结论"
 ` + "```" + `
 
 ## 方式二：.cursorrules 文件
@@ -372,35 +394,52 @@ Settings → MCP Servers → 添加（JSON 格式）：
 
 ---
 
-你拥有一个持久记忆系统 NoteForAI，用它记住关于用户的一切。
+你拥有持久记忆系统 NoteForAI，用它跨对话记住关于用户的一切。
 
 接口：` + endpoint + `/
 调用：POST + JSON body，Content-Type: application/json
 
-| 操作 | 用途 | Body |
-|------|------|------|
-| write | 新建或覆盖笔记 | {"path":"目录/文件.md","content":"# 标题\n内容"} |
-| append | 追加内容到末尾 | {"path":"日志/2025.md","content":"\n### YYYY-MM-DD\n- 事项"} |
-| read | 读取笔记 | {"path":"index.md"} |
-| list | 列出目录内容 | {"path":"目录/"} |
+| 操作 | 用途 | Body 示例 |
+|------|------|-----------|
+| write | 新建或覆盖文件（旧内容替换） | {"path":"项目/进展.md","content":"# 进展\n..."} |
+| append | 追加到文件末尾 | {"path":"日志/2026.md","content":"\n## MM-DD\n- 事项"} |
+| read | 读取文件 | {"path":"index.md"} |
+| list | 列出目录 | {"path":"项目/"} |
 | search | 全文搜索 | {"query":"关键词"} |
-| delete | 删除笔记 | {"path":"文件.md"} |
-| history | 版本历史 | {"path":"文件.md","limit":20} |
+| delete | 软删除（可恢复） | {"path":"文件.md"} |
+| history | 版本历史 | {"path":"文件.md"} |
 
 行为准则：
-1. 对话开始时，先 read("index.md") 获取记忆摘要（不用 tree）
-2. 发现有价值信息立即保存：新建/更新用 write，追加新内容用 append
-3. 对话结束前，append 更新 index.md 的"最近动态"部分
-4. 所有文件用 .md 后缀，首行 # 标题，按主题组织中文目录
 
-触发记录的场景：用户提到偏好/习惯、新项目启动、重要决定、个人信息、待办事项
+【对话开始】
+read("index.md")，严格遵守其中"记录规则"（隐私边界与记录时机）。
+
+【记录原则】
+- 提炼后再记：存结论和决策，不存对话原文
+- 信息过时时用 write 覆写，不要追加矛盾内容
+- 详细内容存专项文件，index.md 只存摘要和焦点
+
+【当前焦点维护】
+- 某话题在对话中连续出现 2 次以上 → 写入 index.md 的"当前焦点"
+- 某焦点 2 周以上未被提及 → 从焦点移除
+
+【关于我的积累】
+- 从对话中自然学到用户信息时，用 write 更新 index.md 的"关于我"
+- 不主动询问个人信息，从对话中观察
+
+【最近动态】
+- 每次对话结束前，在 index.md"最近动态"中 append 一行：
+  YYYY-MM-DD · [一句话结论，记录发生了什么或决定了什么]
+- 超过 5 条时，将最旧的几条 append 归档至 日志/归档.md，再从 index.md 删除
 
 ---
 
 ## 极简版（Token 限制严格时使用）
 
 你有 NoteForAI 持久记忆（` + endpoint + `/）。
-对话开始：read("index.md")；发现有价值信息：POST write/append；结束：更新 index.md。
+开始：read("index.md") 并遵守记录规则。
+记录：结论用 write 覆写，新内容用 append。
+结束：在 index.md 最近动态追加一行 YYYY-MM-DD · 一句话。
 `,
 		},
 		{
