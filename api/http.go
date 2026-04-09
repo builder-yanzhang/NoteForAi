@@ -208,7 +208,7 @@ func initTokenFiles(s *store.Store, tok, baseURL string) {
 （待 AI 记录 — 你的笔记组织方式）
 
 ## 📅 最近动态
-（待 AI 记录 — 最近几次对话的重点摘要）
+（待 AI 记录 — 格式：### YYYY-MM-DD，3-5 条要点，每条一句话）
 
 ## 📚 参考教程
 - 教程/快速入门.md — 接入各类 AI 工具
