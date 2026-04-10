@@ -64,6 +64,11 @@ func NewHTTPServer(s *store.Store, dataDir string) *HTTPServer {
 	srv.mux.HandleFunc("/{token}/write", srv.requireToken(srv.write))
 	srv.mux.HandleFunc("/{token}/read", srv.requireToken(srv.read))
 	srv.mux.HandleFunc("/{token}/read/{path...}", srv.requireToken(srv.read))
+	srv.mux.HandleFunc("/{token}/edit", srv.requireToken(srv.edit))
+	srv.mux.HandleFunc("/{token}/stat", srv.requireToken(srv.stat))
+	srv.mux.HandleFunc("/{token}/stat/{path...}", srv.requireToken(srv.stat))
+	srv.mux.HandleFunc("/{token}/bulk_read", srv.requireToken(srv.bulkRead))
+	srv.mux.HandleFunc("/{token}/move", srv.requireToken(srv.move))
 	srv.mux.HandleFunc("/{token}/delete", srv.requireToken(srv.delete))
 	srv.mux.HandleFunc("/{token}/append", srv.requireToken(srv.append))
 	srv.mux.HandleFunc("/{token}/list", srv.requireToken(srv.list))
@@ -845,30 +850,49 @@ func (h *HTTPServer) search(w http.ResponseWriter, r *http.Request) {
 
 	t := r.PathValue("token")
 	scopePath := getParam(r, body, "path")
+	useRegex := getParam(r, body, "regex") == "true"
+	filesOnly := getParam(r, body, "files_only") == "true"
 
-	// Force scope to user's prefix
-	var searchPrefix string
-	if scopePath != "" {
-		searchPrefix = filepath.Join(t, scopePath)
-	} else {
-		searchPrefix = t + "/"
+	contextLines := 0
+	if s := getParam(r, body, "context"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n >= 0 {
+			contextLines = n
+		}
+	}
+	limit := 50
+	if s := getParam(r, body, "limit"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			limit = n
+		}
 	}
 
-	results, err := h.store.Search(query, searchPrefix)
+	var results []store.SearchResult
+	var err error
+
+	if useRegex {
+		results, err = h.store.RegexSearch(t, query, scopePath, contextLines, limit, filesOnly)
+	} else {
+		var searchPrefix string
+		if scopePath != "" {
+			searchPrefix = filepath.Join(t, scopePath)
+		} else {
+			searchPrefix = t + "/"
+		}
+		results, err = h.store.Search(query, searchPrefix)
+		// Strip token prefix
+		for i := range results {
+			results[i].Path = strings.TrimPrefix(results[i].Path, t+"/")
+		}
+		if limit > 0 && len(results) > limit {
+			results = results[:limit]
+		}
+	}
+
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	// Strip token prefix from result paths
-	stripped := make([]store.SearchResult, len(results))
-	for i, r := range results {
-		stripped[i] = store.SearchResult{
-			Path:    strings.TrimPrefix(r.Path, t+"/"),
-			Snippet: r.Snippet,
-		}
-	}
-	writeJSON(w, stripped)
+	writeJSON(w, results)
 }
 
 func (h *HTTPServer) history(w http.ResponseWriter, r *http.Request) {
@@ -945,6 +969,85 @@ func (h *HTTPServer) deleted(w http.ResponseWriter, r *http.Request) {
 		entries = []store.DeletedEntry{}
 	}
 	writeJSON(w, entries)
+}
+
+func (h *HTTPServer) edit(w http.ResponseWriter, r *http.Request) {
+	body := parseBody(r)
+	path := getParam(r, body, "path")
+	oldStr := getParam(r, body, "old")
+	newStr := getParam(r, body, "new")
+	if path == "" || oldStr == "" {
+		http.Error(w, "path and old required", http.StatusBadRequest)
+		return
+	}
+	replaceAll := getParam(r, body, "replace_all") == "true"
+	if err := h.store.Edit(prefixPath(r, path), oldStr, newStr, replaceAll); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *HTTPServer) stat(w http.ResponseWriter, r *http.Request) {
+	body := parseBody(r)
+	path := getPathParam(r, body)
+	result, err := h.store.Stat(prefixPath(r, path))
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Strip token prefix from path
+	t := r.PathValue("token")
+	result.Path = strings.TrimPrefix(result.Path, t+"/")
+	writeJSON(w, result)
+}
+
+func (h *HTTPServer) bulkRead(w http.ResponseWriter, r *http.Request) {
+	body := parseBody(r)
+	t := r.PathValue("token")
+
+	var paths []string
+	if ps, ok := body["paths"].([]any); ok {
+		for _, p := range ps {
+			if s, ok := p.(string); ok {
+				paths = append(paths, s)
+			}
+		}
+	}
+	if len(paths) == 0 {
+		http.Error(w, "paths array required", http.StatusBadRequest)
+		return
+	}
+
+	results := make([]store.BulkReadResult, len(paths))
+	for i, p := range paths {
+		data, err := h.store.Read(filepath.Join(t, p))
+		if err != nil {
+			results[i] = store.BulkReadResult{Path: p, Error: err.Error()}
+		} else {
+			results[i] = store.BulkReadResult{Path: p, Content: string(data)}
+		}
+	}
+	writeJSON(w, results)
+}
+
+func (h *HTTPServer) move(w http.ResponseWriter, r *http.Request) {
+	body := parseBody(r)
+	from := getParam(r, body, "from")
+	to := getParam(r, body, "to")
+	if from == "" || to == "" {
+		http.Error(w, "from and to required", http.StatusBadRequest)
+		return
+	}
+	if err := h.store.Move(prefixPath(r, from), prefixPath(r, to)); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func (h *HTTPServer) destroy(w http.ResponseWriter, r *http.Request) {

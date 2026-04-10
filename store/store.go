@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,8 +16,26 @@ import (
 )
 
 type SearchResult struct {
+	Path    string   `json:"path"`
+	Line    int      `json:"line,omitempty"`
+	Match   string   `json:"match,omitempty"`
+	Before  []string `json:"before,omitempty"`
+	After   []string `json:"after,omitempty"`
+	Snippet string   `json:"snippet,omitempty"`
+}
+
+type StatResult struct {
+	Path     string `json:"path"`
+	Size     int64  `json:"size"`
+	Lines    int    `json:"lines,omitempty"`
+	Modified string `json:"modified"`
+	IsDir    bool   `json:"is_dir"`
+}
+
+type BulkReadResult struct {
 	Path    string `json:"path"`
-	Snippet string `json:"snippet"`
+	Content string `json:"content,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 type Indexer interface {
@@ -502,9 +521,9 @@ func (s *Store) DestroyToken(token string) {
 	s.repoMu.Unlock()
 }
 
-// Patch replaces the first (and only) occurrence of oldStr with newStr in a file.
-// Returns an error if oldStr is not found or appears more than once.
-func (s *Store) Patch(path string, oldStr, newStr string) error {
+// Edit replaces occurrences of oldStr with newStr in a file.
+// If replaceAll is false, oldStr must appear exactly once; if true, all occurrences are replaced.
+func (s *Store) Edit(path string, oldStr, newStr string, replaceAll bool) error {
 	data, err := s.Read(path)
 	if err != nil {
 		return fmt.Errorf("file not found: %s", path)
@@ -514,12 +533,118 @@ func (s *Store) Patch(path string, oldStr, newStr string) error {
 	if count == 0 {
 		return fmt.Errorf("old_string not found in %s", path)
 	}
-	if count > 1 {
-		return fmt.Errorf("ambiguous: found %d matches for old_string, add more surrounding context to make it unique", count)
+	if !replaceAll && count > 1 {
+		return fmt.Errorf("ambiguous: found %d matches for old_string, add more surrounding context to make it unique (or set replace_all=true)", count)
 	}
-	newContent := strings.Replace(content, oldStr, newStr, 1)
+	var newContent string
+	if replaceAll {
+		newContent = strings.ReplaceAll(content, oldStr, newStr)
+	} else {
+		newContent = strings.Replace(content, oldStr, newStr, 1)
+	}
 	_, err = s.Write(path, []byte(newContent))
 	return err
+}
+
+// Stat returns metadata for a file or directory.
+func (s *Store) Stat(path string) (*StatResult, error) {
+	full, err := s.resolve(path)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(full)
+	if err != nil {
+		return nil, err
+	}
+	result := &StatResult{
+		Path:     path,
+		Size:     info.Size(),
+		Modified: info.ModTime().UTC().Format("2006-01-02T15:04:05Z"),
+		IsDir:    info.IsDir(),
+	}
+	if !info.IsDir() {
+		if data, err := os.ReadFile(full); err == nil {
+			result.Lines = strings.Count(string(data), "\n") + 1
+		}
+	}
+	return result, nil
+}
+
+// RegexSearch searches files under prefix using a regular expression.
+// contextLines controls how many lines before/after each match to include.
+// filesOnly returns only file paths (no line details).
+func (s *Store) RegexSearch(token, pattern, subPath string, contextLines, limit int, filesOnly bool) ([]SearchResult, error) {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("invalid regex: %v", err)
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+
+	baseDir := filepath.Join(s.basePath, token)
+	if subPath != "" {
+		baseDir = filepath.Join(baseDir, subPath)
+	}
+
+	var results []SearchResult
+	seenFiles := map[string]bool{}
+
+	_ = filepath.Walk(baseDir, func(fpath string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if strings.Contains(fpath, ".git") {
+			return nil
+		}
+		if !filesOnly && len(results) >= limit {
+			return nil
+		}
+
+		data, readErr := os.ReadFile(fpath)
+		if readErr != nil || !isText(data) {
+			return nil
+		}
+
+		lines := strings.Split(string(data), "\n")
+		relPath := strings.TrimPrefix(s.relativePath(fpath), token+"/")
+
+		for i, line := range lines {
+			if !re.MatchString(line) {
+				continue
+			}
+			if filesOnly {
+				if !seenFiles[relPath] {
+					seenFiles[relPath] = true
+					results = append(results, SearchResult{Path: relPath})
+				}
+				return nil
+			}
+
+			var before, after []string
+			for j := i - contextLines; j < i; j++ {
+				if j >= 0 {
+					before = append(before, lines[j])
+				}
+			}
+			for j := i + 1; j <= i+contextLines && j < len(lines); j++ {
+				after = append(after, lines[j])
+			}
+			results = append(results, SearchResult{
+				Path:   relPath,
+				Line:   i + 1,
+				Match:  line,
+				Before: before,
+				After:  after,
+			})
+			if len(results) >= limit {
+				return nil
+			}
+		}
+		return nil
+	})
+
+	return results, nil
 }
 
 // Move moves a file from src to dst within the same token space.
