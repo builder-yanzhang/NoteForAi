@@ -94,28 +94,31 @@ func NewHTTPServer(s *store.Store, dataDir string) *HTTPServer {
 	// MCP Streamable HTTP
 	srv.mux.HandleFunc("/{token}/mcp", srv.requireToken(srv.serveMCP))
 
-	// /api/* routes — Bearer token only (no token in URL path)
+	// Bearer token routes — no token in URL path, use Authorization: Bearer <token>
+	// Available at both /api/<op> and /<op> (short form)
 	bt := srv.requireBearerToken
-	srv.mux.HandleFunc("/api/write", bt(srv.write))
-	srv.mux.HandleFunc("/api/read", bt(srv.read))
-	srv.mux.HandleFunc("/api/edit", bt(srv.edit))
-	srv.mux.HandleFunc("/api/append", bt(srv.append))
-	srv.mux.HandleFunc("/api/delete", bt(srv.delete))
-	srv.mux.HandleFunc("/api/list", bt(srv.list))
-	srv.mux.HandleFunc("/api/tree", bt(srv.tree))
-	srv.mux.HandleFunc("/api/stat", bt(srv.stat))
-	srv.mux.HandleFunc("/api/bulk_read", bt(srv.bulkRead))
-	srv.mux.HandleFunc("/api/bulk_write", bt(srv.bulkWrite))
-	srv.mux.HandleFunc("/api/frontmatter", bt(srv.frontmatter))
-	srv.mux.HandleFunc("/api/move", bt(srv.move))
-	srv.mux.HandleFunc("/api/search", bt(srv.search))
-	srv.mux.HandleFunc("/api/history", bt(srv.history))
-	srv.mux.HandleFunc("/api/diff", bt(srv.diff))
-	srv.mux.HandleFunc("/api/revert", bt(srv.revert))
-	srv.mux.HandleFunc("/api/deleted", bt(srv.deleted))
-	srv.mux.HandleFunc("/api/reindex", bt(srv.reindex))
-	srv.mux.HandleFunc("/api/destroy", bt(srv.destroy))
-	srv.mux.HandleFunc("/api/mcp", bt(srv.serveMCP))
+	for _, prefix := range []string{"/api/", "/"} {
+		srv.mux.HandleFunc(prefix+"write", bt(srv.write))
+		srv.mux.HandleFunc(prefix+"read", bt(srv.read))
+		srv.mux.HandleFunc(prefix+"edit", bt(srv.edit))
+		srv.mux.HandleFunc(prefix+"append", bt(srv.append))
+		srv.mux.HandleFunc(prefix+"delete", bt(srv.delete))
+		srv.mux.HandleFunc(prefix+"list", bt(srv.list))
+		srv.mux.HandleFunc(prefix+"tree", bt(srv.tree))
+		srv.mux.HandleFunc(prefix+"stat", bt(srv.stat))
+		srv.mux.HandleFunc(prefix+"bulk_read", bt(srv.bulkRead))
+		srv.mux.HandleFunc(prefix+"bulk_write", bt(srv.bulkWrite))
+		srv.mux.HandleFunc(prefix+"frontmatter", bt(srv.frontmatter))
+		srv.mux.HandleFunc(prefix+"move", bt(srv.move))
+		srv.mux.HandleFunc(prefix+"search", bt(srv.search))
+		srv.mux.HandleFunc(prefix+"history", bt(srv.history))
+		srv.mux.HandleFunc(prefix+"diff", bt(srv.diff))
+		srv.mux.HandleFunc(prefix+"revert", bt(srv.revert))
+		srv.mux.HandleFunc(prefix+"deleted", bt(srv.deleted))
+		srv.mux.HandleFunc(prefix+"reindex", bt(srv.reindex))
+		srv.mux.HandleFunc(prefix+"destroy", bt(srv.destroy))
+		srv.mux.HandleFunc(prefix+"mcp", bt(srv.serveMCP))
+	}
 
 	return srv
 }
