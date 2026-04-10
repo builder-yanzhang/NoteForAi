@@ -1224,7 +1224,7 @@ func (h *HTTPServer) bulkWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	atomic := getParam(r, body, "atomic") == "true"
+	atomic := getBoolParam(body, "atomic") || getParam(r, body, "atomic") == "true"
 	results, err := h.store.BulkWrite(t, items, atomic)
 	if err != nil {
 		if errors.Is(err, store.ErrQuotaExceeded) {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	git "github.com/go-git/go-git/v5"
+	"gopkg.in/yaml.v3"
 )
 
 type SearchResult struct {
@@ -50,9 +51,9 @@ type BulkWriteResult struct {
 }
 
 type FrontmatterResult struct {
-	Path  string            `json:"path"`
-	Meta  map[string]string `json:"meta"`
-	Body  string            `json:"body"`
+	Path string         `json:"path"`
+	Meta map[string]any `json:"meta"`
+	Body string         `json:"body"`
 }
 
 type Indexer interface {
@@ -905,6 +906,7 @@ func (s *Store) AppendUnderHeading(path, heading string, content []byte) error {
 }
 
 // ReadFrontmatter parses YAML front matter (--- delimited) from a Markdown file.
+// Uses gopkg.in/yaml.v3 — supports arrays, nested objects, and all YAML types.
 // Returns the metadata map and the body (content after front matter).
 func (s *Store) ReadFrontmatter(path string) (*FrontmatterResult, error) {
 	data, err := s.Read(path)
@@ -913,24 +915,21 @@ func (s *Store) ReadFrontmatter(path string) (*FrontmatterResult, error) {
 	}
 
 	content := string(data)
-	meta := map[string]string{}
+	meta := map[string]any{}
 	body := content
 
 	if strings.HasPrefix(content, "---\n") {
-		end := strings.Index(content[4:], "\n---")
+		// Find the closing ---
+		rest := content[4:]
+		end := strings.Index(rest, "\n---")
 		if end >= 0 {
-			fmBlock := content[4 : 4+end]
-			body = strings.TrimPrefix(content[4+end+4:], "\n")
-			for _, line := range strings.Split(fmBlock, "\n") {
-				if idx := strings.Index(line, ":"); idx > 0 {
-					k := strings.TrimSpace(line[:idx])
-					v := strings.TrimSpace(line[idx+1:])
-					// Strip optional surrounding quotes
-					v = strings.Trim(v, `"'`)
-					if k != "" {
-						meta[k] = v
-					}
-				}
+			fmBlock := rest[:end]
+			body = strings.TrimPrefix(rest[end+4:], "\n")
+			// Parse with real YAML parser
+			if parseErr := yaml.Unmarshal([]byte(fmBlock), &meta); parseErr != nil {
+				// Malformed YAML — return empty meta, full body
+				meta = map[string]any{}
+				body = content
 			}
 		}
 	}

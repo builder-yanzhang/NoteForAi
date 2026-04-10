@@ -523,17 +523,8 @@ func (m *mcpPrefix) frontmatter(ctx context.Context, req mcp.CallToolRequest) (*
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("path: %s\n", result.Path))
-	if len(result.Meta) > 0 {
-		sb.WriteString("frontmatter:\n")
-		for k, v := range result.Meta {
-			sb.WriteString(fmt.Sprintf("  %s: %s\n", k, v))
-		}
-	} else {
-		sb.WriteString("frontmatter: (none)\n")
-	}
-	sb.WriteString("\n--- body ---\n")
-	sb.WriteString(result.Body)
-	return mcp.NewToolResultText(sb.String()), nil
+	metaJSON, _ := json.MarshalIndent(result.Meta, "", "  ")
+	text := fmt.Sprintf("path: %s\nfrontmatter:\n%s\n\n--- body ---\n%s",
+		result.Path, string(metaJSON), result.Body)
+	return mcp.NewToolResultText(text), nil
 }
