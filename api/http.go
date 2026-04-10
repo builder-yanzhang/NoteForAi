@@ -186,6 +186,27 @@ func getBoolParam(parsed map[string]any, key string) bool {
 	return false
 }
 
+// getIntParam reads an integer param from JSON body (float64/string) or query string.
+// Returns (value, true) if found and valid; (0, false) otherwise.
+func getIntParam(r *http.Request, parsed map[string]any, key string) (int, bool) {
+	if v, ok := parsed[key]; ok {
+		switch val := v.(type) {
+		case float64:
+			return int(val), true
+		case string:
+			if n, err := strconv.Atoi(val); err == nil {
+				return n, true
+			}
+		}
+	}
+	if s := r.URL.Query().Get(key); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			return n, true
+		}
+	}
+	return 0, false
+}
+
 // parseBody parses JSON body for POST requests, returns empty map for GET.
 func parseBody(r *http.Request) map[string]any {
 	parsed := map[string]any{}
@@ -869,14 +890,10 @@ func (h *HTTPServer) tree(w http.ResponseWriter, r *http.Request) {
 	full := prefixPath(r, path)
 
 	maxDepth := -1 // unlimited by default
-	if s := getParam(r, body, "max_depth"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil {
-			maxDepth = n
-		}
-	} else if s := getParam(r, body, "depth"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil {
-			maxDepth = n
-		}
+	if n, ok := getIntParam(r, body, "max_depth"); ok {
+		maxDepth = n
+	} else if n, ok := getIntParam(r, body, "depth"); ok {
+		maxDepth = n
 	}
 
 	node, err := h.store.TreeDepth(full, maxDepth)
@@ -908,16 +925,12 @@ func (h *HTTPServer) search(w http.ResponseWriter, r *http.Request) {
 	filesOnly := getBoolParam(body, "files_only") || getParam(r, body, "files_only") == "true"
 
 	contextLines := 0
-	if s := getParam(r, body, "context"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n >= 0 {
-			contextLines = n
-		}
+	if n, ok := getIntParam(r, body, "context"); ok && n >= 0 {
+		contextLines = n
 	}
 	limit := 50
-	if s := getParam(r, body, "limit"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			limit = n
-		}
+	if n, ok := getIntParam(r, body, "limit"); ok && n > 0 {
+		limit = n
 	}
 
 	var results []store.SearchResult
@@ -960,10 +973,8 @@ func (h *HTTPServer) history(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	limit := 20
-	if s := getParam(r, body, "limit"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			limit = n
-		}
+	if n, ok := getIntParam(r, body, "limit"); ok && n > 0 {
+		limit = n
 	}
 	entries, err := h.store.History(prefixPath(r, path), limit)
 	if err != nil {
@@ -1011,10 +1022,8 @@ func (h *HTTPServer) revert(w http.ResponseWriter, r *http.Request) {
 func (h *HTTPServer) deleted(w http.ResponseWriter, r *http.Request) {
 	body := parseBody(r)
 	limit := 50
-	if s := getParam(r, body, "limit"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			limit = n
-		}
+	if n, ok := getIntParam(r, body, "limit"); ok && n > 0 {
+		limit = n
 	}
 	t := getToken(r)
 	entries, err := h.store.Deleted(t, limit)

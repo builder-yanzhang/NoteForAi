@@ -850,9 +850,16 @@ func (s *Store) ReadFrontmatter(path string) (*FrontmatterResult, error) {
 	return &FrontmatterResult{Path: rel, Meta: meta, Body: body}, nil
 }
 
-// Reindex walks all files for a token and re-indexes them in Bleve.
-// Use this to repair stale index entries after manual file edits.
+// Reindex fully rebuilds the search index for a token.
+// It first removes ALL Bleve documents under the token prefix (clearing orphans
+// whose disk files no longer exist), then re-indexes every file on disk.
 func (s *Store) Reindex(token string) (int, error) {
+	// Step 1: purge every index entry for this token, including orphans
+	if err := s.index.RemoveByPrefix(token + "/"); err != nil {
+		log.Printf("reindex: remove prefix error for %s: %v", token, err)
+	}
+
+	// Step 2: re-index all files present on disk
 	dir := filepath.Join(s.basePath, token)
 	count := 0
 	var walkErr error
