@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <url>
+    <loc>https://noteforai.com/</loc>
+    <lastmod>2026-04-10</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+    <xhtml:link rel="alternate" hreflang="zh-CN" href="https://noteforai.com/?lang=zh-CN"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://noteforai.com/?lang=en"/>
+    <xhtml:link rel="alternate" hreflang="ja" href="https://noteforai.com/?lang=ja"/>
+    <xhtml:link rel="alternate" hreflang="ko" href="https://noteforai.com/?lang=ko"/>
+    <xhtml:link rel="alternate" hreflang="es" href="https://noteforai.com/?lang=es"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://noteforai.com/?lang=fr"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://noteforai.com/?lang=de"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://noteforai.com/"/>
+  </url>
+  <url>
+    <loc>https://noteforai.com/dashboard.html</loc>
+    <lastmod>2026-04-10</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+</urlset>
