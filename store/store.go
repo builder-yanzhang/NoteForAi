@@ -38,6 +38,23 @@ type BulkReadResult struct {
 	Error   string `json:"error,omitempty"`
 }
 
+type BulkWriteItem struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
+type BulkWriteResult struct {
+	Path    string `json:"path"`
+	Created bool   `json:"created"`
+	Error   string `json:"error,omitempty"`
+}
+
+type FrontmatterResult struct {
+	Path  string            `json:"path"`
+	Meta  map[string]string `json:"meta"`
+	Body  string            `json:"body"`
+}
+
 type Indexer interface {
 	Index(path string, content string) error
 	Remove(path string) error
@@ -53,6 +70,9 @@ type Entry struct {
 
 type TreeNode struct {
 	Name     string      `json:"name"`
+	IsFile   bool        `json:"is_file,omitempty"`
+	Size     int64       `json:"size,omitempty"`
+	Modified string      `json:"modified,omitempty"`
 	Children []*TreeNode `json:"children,omitempty"`
 }
 
@@ -373,7 +393,10 @@ func (s *Store) buildTree(fullPath string) (*TreeNode, error) {
 		return nil, err
 	}
 
-	node := &TreeNode{Name: info.Name()}
+	node := &TreeNode{
+		Name:     info.Name(),
+		Modified: info.ModTime().UTC().Format("2006-01-02T15:04:05Z"),
+	}
 
 	if info.IsDir() {
 		entries, err := os.ReadDir(fullPath)
@@ -393,6 +416,9 @@ func (s *Store) buildTree(fullPath string) (*TreeNode, error) {
 			}
 			node.Children = append(node.Children, child)
 		}
+	} else {
+		node.IsFile = true
+		node.Size = info.Size()
 	}
 
 	return node, nil
@@ -700,6 +726,120 @@ func (s *Store) Move(src, dst string) error {
 		s.gitCommitEach(tok, []string{srcRel}, "delete")
 	}
 	return nil
+}
+
+// BulkWrite writes multiple files. If atomic=true, all files share a single git commit
+// and writing stops on the first error. If false, errors are collected per-file and
+// each file gets its own git commit.
+func (s *Store) BulkWrite(token string, items []BulkWriteItem, atomic bool) ([]BulkWriteResult, error) {
+	results := make([]BulkWriteResult, len(items))
+	var relPaths []string
+	hasError := false
+
+	for i, item := range items {
+		path := filepath.Join(token, item.Path)
+		created, err := s.writeInternal(path, []byte(item.Content))
+		if err != nil {
+			results[i] = BulkWriteResult{Path: item.Path, Error: err.Error()}
+			hasError = true
+			if atomic {
+				break
+			}
+			continue
+		}
+		results[i] = BulkWriteResult{Path: item.Path, Created: created}
+		_, rel := tokenAndRel(path)
+		if rel != "" {
+			relPaths = append(relPaths, rel)
+		}
+	}
+
+	if len(relPaths) == 0 {
+		return results, nil
+	}
+
+	if atomic {
+		if hasError {
+			return results, fmt.Errorf("bulk_write aborted: partial write, no git commit created")
+		}
+		s.gitCommitAll(token, relPaths, "bulk_write")
+	} else {
+		for _, rel := range relPaths {
+			s.gitCommit(token, rel, "write")
+		}
+	}
+
+	return results, nil
+}
+
+// AppendUnderHeading appends content immediately after the first occurrence of
+// the given Markdown heading (e.g. "## 最近动态"). Creates the file if missing.
+// If the heading is not found, falls back to appending at end of file.
+func (s *Store) AppendUnderHeading(path, heading string, content []byte) error {
+	existing, err := s.Read(path)
+	if err != nil {
+		// File doesn't exist — create with heading + content
+		newContent := heading + "\n" + string(content)
+		_, err = s.Write(path, []byte(newContent))
+		return err
+	}
+
+	lines := strings.Split(string(existing), "\n")
+	insertAt := -1
+	for i, line := range lines {
+		if strings.TrimRight(line, " \t") == strings.TrimRight(heading, " \t") {
+			insertAt = i + 1
+			break
+		}
+	}
+
+	if insertAt == -1 {
+		// Heading not found — append at end
+		return s.Append(path, content)
+	}
+
+	// Insert content after the heading line
+	newLines := make([]string, 0, len(lines)+2)
+	newLines = append(newLines, lines[:insertAt]...)
+	newLines = append(newLines, string(content))
+	newLines = append(newLines, lines[insertAt:]...)
+	_, err = s.Write(path, []byte(strings.Join(newLines, "\n")))
+	return err
+}
+
+// ReadFrontmatter parses YAML front matter (--- delimited) from a Markdown file.
+// Returns the metadata map and the body (content after front matter).
+func (s *Store) ReadFrontmatter(path string) (*FrontmatterResult, error) {
+	data, err := s.Read(path)
+	if err != nil {
+		return nil, err
+	}
+
+	content := string(data)
+	meta := map[string]string{}
+	body := content
+
+	if strings.HasPrefix(content, "---\n") {
+		end := strings.Index(content[4:], "\n---")
+		if end >= 0 {
+			fmBlock := content[4 : 4+end]
+			body = strings.TrimPrefix(content[4+end+4:], "\n")
+			for _, line := range strings.Split(fmBlock, "\n") {
+				if idx := strings.Index(line, ":"); idx > 0 {
+					k := strings.TrimSpace(line[:idx])
+					v := strings.TrimSpace(line[idx+1:])
+					// Strip optional surrounding quotes
+					v = strings.Trim(v, `"'`)
+					if k != "" {
+						meta[k] = v
+					}
+				}
+			}
+		}
+	}
+
+	_, rel := tokenAndRel(path)
+	return &FrontmatterResult{Path: rel, Meta: meta, Body: body}, nil
 }
 
 // tokenAndRelPath returns only the relative part of a store path.

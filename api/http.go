@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,10 @@ import (
 
 	"github.com/mark3labs/mcp-go/server"
 )
+
+type contextKey string
+
+const tokenCtxKey contextKey = "token"
 
 const maxBodySize = 10 << 20 // 10 MB
 
@@ -68,6 +73,8 @@ func NewHTTPServer(s *store.Store, dataDir string) *HTTPServer {
 	srv.mux.HandleFunc("/{token}/stat", srv.requireToken(srv.stat))
 	srv.mux.HandleFunc("/{token}/stat/{path...}", srv.requireToken(srv.stat))
 	srv.mux.HandleFunc("/{token}/bulk_read", srv.requireToken(srv.bulkRead))
+	srv.mux.HandleFunc("/{token}/bulk_write", srv.requireToken(srv.bulkWrite))
+	srv.mux.HandleFunc("/{token}/frontmatter", srv.requireToken(srv.frontmatter))
 	srv.mux.HandleFunc("/{token}/move", srv.requireToken(srv.move))
 	srv.mux.HandleFunc("/{token}/delete", srv.requireToken(srv.delete))
 	srv.mux.HandleFunc("/{token}/append", srv.requireToken(srv.append))
@@ -124,10 +131,16 @@ func (h *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Printf("%s %s %d %s", r.Method, r.URL.Path, rec.status, time.Since(start).Round(time.Millisecond))
 }
 
-// requireToken validates the token from the URL path.
+// requireToken validates the token from the URL path or Authorization: Bearer header.
 func (h *HTTPServer) requireToken(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		t := r.PathValue("token")
+		if !token.IsValid(t) {
+			// Fall back to Authorization: Bearer {token}
+			if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+				t = strings.TrimPrefix(auth, "Bearer ")
+			}
+		}
 		if !token.IsValid(t) {
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
@@ -136,8 +149,17 @@ func (h *HTTPServer) requireToken(next http.HandlerFunc) http.HandlerFunc {
 			http.Error(w, "token not found", http.StatusUnauthorized)
 			return
 		}
-		next(w, r)
+		ctx := context.WithValue(r.Context(), tokenCtxKey, t)
+		next(w, r.WithContext(ctx))
 	}
+}
+
+// getToken reads the validated token from context (set by requireToken).
+func getToken(r *http.Request) string {
+	if t, ok := r.Context().Value(tokenCtxKey).(string); ok && t != "" {
+		return t
+	}
+	return r.PathValue("token")
 }
 
 // getParam reads a parameter from JSON body (POST) or query string (GET).
@@ -164,7 +186,7 @@ func parseBody(r *http.Request) map[string]any {
 
 // prefixPath prepends the token to the user's path for isolation.
 func prefixPath(r *http.Request, userPath string) string {
-	t := r.PathValue("token")
+	t := getToken(r)
 	if userPath == "" || userPath == "." {
 		return t
 	}
@@ -792,7 +814,14 @@ func (h *HTTPServer) append(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.store.Append(prefixPath(r, path), content); err != nil {
+	heading := getParam(r, body, "under_heading")
+	var err error
+	if heading != "" {
+		err = h.store.AppendUnderHeading(prefixPath(r, path), heading, content)
+	} else {
+		err = h.store.Append(prefixPath(r, path), content)
+	}
+	if err != nil {
 		if errors.Is(err, store.ErrQuotaExceeded) {
 			http.Error(w, err.Error(), http.StatusInsufficientStorage)
 			return
@@ -848,7 +877,7 @@ func (h *HTTPServer) search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	t := r.PathValue("token")
+	t := getToken(r)
 	scopePath := getParam(r, body, "path")
 	useRegex := getParam(r, body, "regex") == "true"
 	filesOnly := getParam(r, body, "files_only") == "true"
@@ -959,7 +988,7 @@ func (h *HTTPServer) deleted(w http.ResponseWriter, r *http.Request) {
 			limit = n
 		}
 	}
-	t := r.PathValue("token")
+	t := getToken(r)
 	entries, err := h.store.Deleted(t, limit)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1001,14 +1030,13 @@ func (h *HTTPServer) stat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Strip token prefix from path
-	t := r.PathValue("token")
-	result.Path = strings.TrimPrefix(result.Path, t+"/")
+	result.Path = strings.TrimPrefix(result.Path, getToken(r)+"/")
 	writeJSON(w, result)
 }
 
 func (h *HTTPServer) bulkRead(w http.ResponseWriter, r *http.Request) {
 	body := parseBody(r)
-	t := r.PathValue("token")
+	t := getToken(r)
 
 	var paths []string
 	if ps, ok := body["paths"].([]any); ok {
@@ -1050,8 +1078,61 @@ func (h *HTTPServer) move(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+func (h *HTTPServer) bulkWrite(w http.ResponseWriter, r *http.Request) {
+	body := parseBody(r)
+	t := getToken(r)
+
+	var items []store.BulkWriteItem
+	if raw, ok := body["files"].([]any); ok {
+		for _, f := range raw {
+			if m, ok := f.(map[string]any); ok {
+				path, _ := m["path"].(string)
+				content, _ := m["content"].(string)
+				if path != "" {
+					items = append(items, store.BulkWriteItem{Path: path, Content: content})
+				}
+			}
+		}
+	}
+	if len(items) == 0 {
+		http.Error(w, "files array required", http.StatusBadRequest)
+		return
+	}
+
+	atomic := getParam(r, body, "atomic") == "true"
+	results, err := h.store.BulkWrite(t, items, atomic)
+	if err != nil {
+		if errors.Is(err, store.ErrQuotaExceeded) {
+			http.Error(w, err.Error(), http.StatusInsufficientStorage)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, results)
+}
+
+func (h *HTTPServer) frontmatter(w http.ResponseWriter, r *http.Request) {
+	body := parseBody(r)
+	path := getParam(r, body, "path")
+	if path == "" {
+		http.Error(w, "path required", http.StatusBadRequest)
+		return
+	}
+	result, err := h.store.ReadFrontmatter(prefixPath(r, path))
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, result)
+}
+
 func (h *HTTPServer) destroy(w http.ResponseWriter, r *http.Request) {
-	t := r.PathValue("token")
+	t := getToken(r)
 	if err := token.Destroy(h.dataDir, t); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1076,7 +1157,7 @@ func (h *HTTPServer) getOrCreateMCP(tok string) *server.StreamableHTTPServer {
 }
 
 func (h *HTTPServer) serveMCP(w http.ResponseWriter, r *http.Request) {
-	tok := r.PathValue("token")
+	tok := getToken(r)
 	h.getOrCreateMCP(tok).ServeHTTP(w, r)
 }
 

@@ -369,6 +369,33 @@ func (s *Store) gitDeleted(token string, limit int) ([]DeletedEntry, error) {
 	return entries, nil
 }
 
+// gitCommitAll stages all relPaths in a single commit under the per-repo lock.
+// Used for atomic bulk_write so all files share one git commit.
+func (s *Store) gitCommitAll(token string, relPaths []string, action string) {
+	lk := s.gitWriteLock(token)
+	lk.Lock()
+	defer lk.Unlock()
+
+	repo := s.getRepo(token)
+	if repo == nil {
+		return
+	}
+	w, err := repo.Worktree()
+	if err != nil {
+		log.Printf("git worktree error: %v", err)
+		return
+	}
+	for _, p := range relPaths {
+		if _, err := w.Add(p); err != nil {
+			log.Printf("git add error for %s: %v", p, err)
+		}
+	}
+	msg := fmt.Sprintf("%s [%d files]", action, len(relPaths))
+	if _, err := w.Commit(msg, &git.CommitOptions{Author: newAuthor()}); err != nil {
+		log.Printf("git commit error: %v", err)
+	}
+}
+
 // InitRepo initializes a git repo for a token directory (called from token.Create).
 func InitRepo(basePath, token string) {
 	repoPath := filepath.Join(basePath, token)
