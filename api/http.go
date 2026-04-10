@@ -88,6 +88,7 @@ func NewHTTPServer(s *store.Store, dataDir string) *HTTPServer {
 	srv.mux.HandleFunc("/{token}/diff", srv.requireToken(srv.diff))
 	srv.mux.HandleFunc("/{token}/revert", srv.requireToken(srv.revert))
 	srv.mux.HandleFunc("/{token}/deleted", srv.requireToken(srv.deleted))
+	srv.mux.HandleFunc("/{token}/reindex", srv.requireToken(srv.reindex))
 	srv.mux.HandleFunc("/{token}/destroy", srv.requireToken(srv.destroy))
 
 	// MCP Streamable HTTP
@@ -170,6 +171,19 @@ func getParam(r *http.Request, parsed map[string]any, key string) string {
 		}
 	}
 	return r.URL.Query().Get(key)
+}
+
+// getBoolParam reads a boolean param from a JSON body (accepts bool or "true" string).
+func getBoolParam(parsed map[string]any, key string) bool {
+	if v, ok := parsed[key]; ok {
+		switch val := v.(type) {
+		case bool:
+			return val
+		case string:
+			return val == "true"
+		}
+	}
+	return false
 }
 
 // parseBody parses JSON body for POST requests, returns empty map for GET.
@@ -854,7 +868,18 @@ func (h *HTTPServer) tree(w http.ResponseWriter, r *http.Request) {
 	path := getPathParam(r, body)
 	full := prefixPath(r, path)
 
-	node, err := h.store.Tree(full)
+	maxDepth := -1 // unlimited by default
+	if s := getParam(r, body, "max_depth"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			maxDepth = n
+		}
+	} else if s := getParam(r, body, "depth"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			maxDepth = n
+		}
+	}
+
+	node, err := h.store.TreeDepth(full, maxDepth)
 	if err != nil {
 		if os.IsNotExist(err) {
 			http.Error(w, "not found", http.StatusNotFound)
@@ -879,8 +904,8 @@ func (h *HTTPServer) search(w http.ResponseWriter, r *http.Request) {
 
 	t := getToken(r)
 	scopePath := getParam(r, body, "path")
-	useRegex := getParam(r, body, "regex") == "true"
-	filesOnly := getParam(r, body, "files_only") == "true"
+	useRegex := getBoolParam(body, "regex") || getParam(r, body, "regex") == "true"
+	filesOnly := getBoolParam(body, "files_only") || getParam(r, body, "files_only") == "true"
 
 	contextLines := 0
 	if s := getParam(r, body, "context"); s != "" {
@@ -911,6 +936,9 @@ func (h *HTTPServer) search(w http.ResponseWriter, r *http.Request) {
 		// Strip token prefix
 		for i := range results {
 			results[i].Path = strings.TrimPrefix(results[i].Path, t+"/")
+			if filesOnly {
+				results[i].Snippet = ""
+			}
 		}
 		if limit > 0 && len(results) > limit {
 			results = results[:limit]
@@ -1009,7 +1037,8 @@ func (h *HTTPServer) edit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "path and old required", http.StatusBadRequest)
 		return
 	}
-	replaceAll := getParam(r, body, "replace_all") == "true"
+	// JSON sends replace_all as bool; query string sends it as "true"
+	replaceAll := getBoolParam(body, "replace_all") || getParam(r, body, "replace_all") == "true"
 	if err := h.store.Edit(prefixPath(r, path), oldStr, newStr, replaceAll); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -1129,6 +1158,16 @@ func (h *HTTPServer) frontmatter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, result)
+}
+
+func (h *HTTPServer) reindex(w http.ResponseWriter, r *http.Request) {
+	t := getToken(r)
+	count, err := h.store.Reindex(t)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]int{"indexed": count})
 }
 
 func (h *HTTPServer) destroy(w http.ResponseWriter, r *http.Request) {

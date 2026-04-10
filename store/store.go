@@ -375,11 +375,16 @@ func (s *Store) List(path string) ([]Entry, error) {
 }
 
 func (s *Store) Tree(path string) (*TreeNode, error) {
+	return s.TreeDepth(path, -1)
+}
+
+// TreeDepth returns the directory tree up to maxDepth levels (−1 = unlimited).
+func (s *Store) TreeDepth(path string, maxDepth int) (*TreeNode, error) {
 	full, err := s.resolve(path)
 	if err != nil {
 		return nil, err
 	}
-	node, err := s.buildTree(full)
+	node, err := s.buildTree(full, 0, maxDepth)
 	if err != nil {
 		return nil, err
 	}
@@ -387,7 +392,7 @@ func (s *Store) Tree(path string) (*TreeNode, error) {
 	return node, nil
 }
 
-func (s *Store) buildTree(fullPath string) (*TreeNode, error) {
+func (s *Store) buildTree(fullPath string, depth, maxDepth int) (*TreeNode, error) {
 	info, err := os.Stat(fullPath)
 	if err != nil {
 		return nil, err
@@ -399,6 +404,9 @@ func (s *Store) buildTree(fullPath string) (*TreeNode, error) {
 	}
 
 	if info.IsDir() {
+		if maxDepth >= 0 && depth >= maxDepth {
+			return node, nil // stop recursing
+		}
 		entries, err := os.ReadDir(fullPath)
 		if err != nil {
 			return nil, err
@@ -407,7 +415,7 @@ func (s *Store) buildTree(fullPath string) (*TreeNode, error) {
 			if e.Name() == ".git" {
 				continue
 			}
-			child, err := s.buildTree(filepath.Join(fullPath, e.Name()))
+			child, err := s.buildTree(filepath.Join(fullPath, e.Name()), depth+1, maxDepth)
 			if err != nil {
 				continue
 			}
@@ -840,6 +848,32 @@ func (s *Store) ReadFrontmatter(path string) (*FrontmatterResult, error) {
 
 	_, rel := tokenAndRel(path)
 	return &FrontmatterResult{Path: rel, Meta: meta, Body: body}, nil
+}
+
+// Reindex walks all files for a token and re-indexes them in Bleve.
+// Use this to repair stale index entries after manual file edits.
+func (s *Store) Reindex(token string) (int, error) {
+	dir := filepath.Join(s.basePath, token)
+	count := 0
+	var walkErr error
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || strings.Contains(path, ".git") {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil || !isText(data) {
+			return nil
+		}
+		rel := s.relativePath(path)
+		if indexErr := s.index.Index(rel, string(data)); indexErr != nil {
+			walkErr = indexErr
+			log.Printf("reindex error for %s: %v", rel, indexErr)
+		} else {
+			count++
+		}
+		return nil
+	})
+	return count, walkErr
 }
 
 // tokenAndRelPath returns only the relative part of a store path.
