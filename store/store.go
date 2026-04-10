@@ -502,6 +502,87 @@ func (s *Store) DestroyToken(token string) {
 	s.repoMu.Unlock()
 }
 
+// Patch replaces the first (and only) occurrence of oldStr with newStr in a file.
+// Returns an error if oldStr is not found or appears more than once.
+func (s *Store) Patch(path string, oldStr, newStr string) error {
+	data, err := s.Read(path)
+	if err != nil {
+		return fmt.Errorf("file not found: %s", path)
+	}
+	content := string(data)
+	count := strings.Count(content, oldStr)
+	if count == 0 {
+		return fmt.Errorf("old_string not found in %s", path)
+	}
+	if count > 1 {
+		return fmt.Errorf("ambiguous: found %d matches for old_string, add more surrounding context to make it unique", count)
+	}
+	newContent := strings.Replace(content, oldStr, newStr, 1)
+	_, err = s.Write(path, []byte(newContent))
+	return err
+}
+
+// Move moves a file from src to dst within the same token space.
+// Both paths must include the token prefix (e.g. "nfa_xxx/a.md" → "nfa_xxx/b.md").
+func (s *Store) Move(src, dst string) error {
+	srcToken := tokenFromPath(src)
+	dstToken := tokenFromPath(dst)
+	if srcToken != dstToken {
+		return fmt.Errorf("cannot move across tokens")
+	}
+
+	srcFull, err := s.resolve(src)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(srcFull)
+	if err != nil {
+		return fmt.Errorf("source not found: %s", src)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("moving directories is not supported; move files individually")
+	}
+
+	data, err := os.ReadFile(srcFull)
+	if err != nil {
+		return err
+	}
+
+	// Write destination (quota check, index, file)
+	if _, err := s.writeInternal(dst, data); err != nil {
+		return err
+	}
+
+	// Remove source file + update index/usage
+	dstFull, _ := s.resolve(dst)
+	_ = dstFull
+
+	lk := s.pathLock(srcFull)
+	lk.Lock()
+	s.index.Remove(s.relativePath(srcFull))
+	os.Remove(srcFull)
+	s.addUsage(srcToken, -info.Size())
+	lk.Unlock()
+
+	// Git: commit destination (new file)
+	tok, dstRel := tokenAndRel(dst)
+	if dstRel != "" {
+		s.gitCommit(tok, dstRel, "move from "+tokenAndRelPath(src))
+	}
+	// Git: commit source deletion
+	_, srcRel := tokenAndRel(src)
+	if srcRel != "" {
+		s.gitCommitEach(tok, []string{srcRel}, "delete")
+	}
+	return nil
+}
+
+// tokenAndRelPath returns only the relative part of a store path.
+func tokenAndRelPath(path string) string {
+	_, rel := tokenAndRel(path)
+	return rel
+}
+
 // isText returns true if content appears to be text (no null bytes in first 512 bytes).
 func isText(content []byte) bool {
 	if len(content) == 0 {

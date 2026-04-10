@@ -33,7 +33,7 @@ func (sr *statusRecorder) WriteHeader(code int) {
 	sr.ResponseWriter.WriteHeader(code)
 }
 
-//go:embed ui/index.html ui/dashboard.html ui/i18n.js ui/robots.txt ui/sitemap.xml ui/llms.txt
+//go:embed ui/index.html ui/dashboard.html ui/i18n.js ui/robots.txt ui/sitemap.xml ui/llms.txt ui/google6e25dcdf9042f0b5.html
 var uiFS embed.FS
 
 type HTTPServer struct {
@@ -55,6 +55,7 @@ func NewHTTPServer(s *store.Store, dataDir string) *HTTPServer {
 	srv.mux.HandleFunc("GET /robots.txt", srv.serveStatic("ui/robots.txt", "text/plain"))
 	srv.mux.HandleFunc("GET /sitemap.xml", srv.serveStatic("ui/sitemap.xml", "application/xml"))
 	srv.mux.HandleFunc("GET /llms.txt", srv.serveStatic("ui/llms.txt", "text/plain"))
+	srv.mux.HandleFunc("GET /google6e25dcdf9042f0b5.html", srv.serveStatic("ui/google6e25dcdf9042f0b5.html", "text/html"))
 
 	// Token creation — no auth required
 	srv.mux.HandleFunc("/create_token", srv.createToken)
