@@ -3,9 +3,47 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title data-i18n="page.title">NoteForAI — 给 AI 一个专属笔记本</title>
-<meta name="description" content="NoteForAI: AI 专属笔记系统。API: POST /{token}/{action}, 操作: write/read/append/delete/search/tree/history。支持 HTTP + MCP 双协议，Git 版本保护，数据完全属于你。">
+<title>NoteForAI — 给 AI 一个专属笔记本 | AI Persistent Memory</title>
+<meta name="description" content="NoteForAI: AI-native persistent memory for any AI. HTTP + MCP dual protocol, Git version control, full-text search. One token gives Claude, ChatGPT, Gemini, Cursor cross-session memory.">
+<link rel="canonical" href="https://noteforai.com/">
+
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="NoteForAI — 给 AI 一个专属笔记本">
+<meta property="og:description" content="换 AI 不换记忆。HTTP + MCP 双协议，Git 版本保护，一个 Token 接入任意 AI。">
+<meta property="og:url" content="https://noteforai.com/">
+<meta property="og:image" content="https://noteforai.com/og-image.png">
+<meta property="og:site_name" content="NoteForAI">
+
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="NoteForAI — Give AI a Personal Notebook">
+<meta name="twitter:description" content="Persistent memory for any AI. HTTP + MCP. Git versioning. One token, any AI tool.">
+<meta name="twitter:image" content="https://noteforai.com/og-image.png">
+
+<!-- hreflang -->
+<link rel="alternate" hreflang="zh-CN" href="https://noteforai.com/?lang=zh-CN">
+<link rel="alternate" hreflang="zh-TW" href="https://noteforai.com/?lang=zh-TW">
+<link rel="alternate" hreflang="en" href="https://noteforai.com/?lang=en">
+<link rel="alternate" hreflang="ja" href="https://noteforai.com/?lang=ja">
+<link rel="alternate" hreflang="ko" href="https://noteforai.com/?lang=ko">
+<link rel="alternate" hreflang="es" href="https://noteforai.com/?lang=es">
+<link rel="alternate" hreflang="fr" href="https://noteforai.com/?lang=fr">
+<link rel="alternate" hreflang="de" href="https://noteforai.com/?lang=de">
+<link rel="alternate" hreflang="x-default" href="https://noteforai.com/">
+
+<!-- JSON-LD: SoftwareApplication -->
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"NoteForAI","description":"AI-native persistent note system. Give any AI a personal notebook that remembers across conversations and tools.","url":"https://noteforai.com","applicationCategory":"DeveloperApplication","operatingSystem":"Any (HTTP API + MCP)","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"featureList":["Persistent AI memory across conversations","HTTP + MCP dual protocol","Git version control","Full-text search with CJK support","Self-hostable single Go binary","Multi-language support (18 languages)"],"author":{"@type":"Organization","name":"NoteForAI"}}
+</script>
+
+<!-- JSON-LD: FAQ -->
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"如何让 AI 跨对话记住我说过的话？","acceptedAnswer":{"@type":"Answer","text":"使用 NoteForAI。创建 Token，将生成的系统提示词粘贴到任意 AI 工具（Claude、ChatGPT、Gemini 等），AI 就会自动读写笔记，实现跨对话持久记忆。"}},{"@type":"Question","name":"How to give AI persistent memory across conversations?","acceptedAnswer":{"@type":"Answer","text":"Use NoteForAI. Create a token, paste the generated system prompt into any AI tool (Claude, ChatGPT, Gemini, Cursor, Copilot), and the AI will automatically read and write notes to maintain memory across sessions."}},{"@type":"Question","name":"What MCP server can I use for AI note taking?","acceptedAnswer":{"@type":"Answer","text":"NoteForAI provides a native MCP (Model Context Protocol) Streamable HTTP server. Add it to Claude Desktop or Claude Code with one line of configuration."}},{"@type":"Question","name":"NoteForAI vs Claude Memory vs ChatGPT Memory — what's the difference?","acceptedAnswer":{"@type":"Answer","text":"NoteForAI works across all AI platforms (not locked to one). Memory is fully visible and editable. Data can be exported anytime as Markdown/ZIP/JSON. Can be self-hosted. Unlike Claude/ChatGPT built-in memory which is opaque and platform-locked."}}]}
+</script>
+
 <script src="/i18n.js?v=3"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
@@ -94,6 +132,15 @@ code,pre{font-family:'JetBrains Mono','Fira Code',monospace;}
         </div>
       </div>
     </div>
+  </div>
+</section>
+
+<!-- SEO DEFINITION LEAD -->
+<section class="py-6 px-6 bg-white border-b border-gray-50">
+  <div class="max-w-4xl mx-auto">
+    <p class="text-sm text-gray-500 leading-relaxed text-center">
+      NoteForAI is an AI-native persistent memory system that gives any AI assistant — including ChatGPT, Claude, Gemini, Cursor, and Copilot — a personal notebook for remembering context across conversations. It supports HTTP API and MCP (Model Context Protocol), with Git version control, full-text CJK search, and complete data portability. No registration required.
+    </p>
   </div>
 </section>
 
@@ -241,6 +288,42 @@ code,pre{font-family:'JetBrains Mono','Fira Code',monospace;}
         <div class="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-2xl mb-3">&#128256;</div>
         <h3 class="font-semibold mb-2" data-i18n="data.version.title">版本回溯</h3>
         <p class="text-gray-500 text-sm leading-relaxed" data-i18n="data.version.desc">Git 驱动版本管理，每次修改留痕，误删可恢复，30 天历史完整保存</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section id="faq" class="py-20 px-6 bg-white">
+  <div class="max-w-3xl mx-auto">
+    <div class="text-center mb-12">
+      <h2 class="text-3xl font-bold mb-4">常见问题 / FAQ</h2>
+      <p class="text-gray-500">关于 AI 持久记忆你最想知道的答案</p>
+    </div>
+    <div class="space-y-4">
+      <div class="bg-gray-50 rounded-2xl p-6 border border-gray-100">
+        <h3 class="font-semibold text-gray-900 mb-2">如何让 AI 跨对话记住我说过的话？</h3>
+        <p class="text-gray-500 text-sm leading-relaxed">使用 NoteForAI。创建 Token 后将生成的系统提示词粘贴到任意 AI 工具（Claude、ChatGPT、Gemini 等），AI 就会在每次对话开始时自动读取笔记，实现跨对话持久记忆。全程无需注册账号。</p>
+      </div>
+      <div class="bg-gray-50 rounded-2xl p-6 border border-gray-100">
+        <h3 class="font-semibold text-gray-900 mb-2">How to give AI persistent memory across conversations?</h3>
+        <p class="text-gray-500 text-sm leading-relaxed">Use NoteForAI. Create a token, paste the generated system prompt into any AI tool (Claude, ChatGPT, Gemini, Cursor, Copilot), and the AI will automatically read and write notes to maintain memory across all sessions. No registration required.</p>
+      </div>
+      <div class="bg-gray-50 rounded-2xl p-6 border border-gray-100">
+        <h3 class="font-semibold text-gray-900 mb-2">What MCP server can I use for AI note taking?</h3>
+        <p class="text-gray-500 text-sm leading-relaxed">NoteForAI provides a native MCP (Model Context Protocol) Streamable HTTP server at <code class="text-indigo-600 bg-indigo-50 px-1 rounded">/{token}/mcp</code>. Add it to Claude Desktop or Claude Code with one line: <code class="text-indigo-600 bg-indigo-50 px-1 rounded">{"type":"streamable-http","url":"https://noteforai.com/{token}/mcp"}</code>.</p>
+      </div>
+      <div class="bg-gray-50 rounded-2xl p-6 border border-gray-100">
+        <h3 class="font-semibold text-gray-900 mb-2">ChatGPT / Claude 怎么跨对话记住信息？</h3>
+        <p class="text-gray-500 text-sm leading-relaxed">ChatGPT 和 Claude 内置的记忆功能是黑盒且平台锁定的。NoteForAI 提供透明、可导出、跨平台的替代方案——你可以看到、编辑、导出所有记忆内容，换 AI 工具记忆照常使用。</p>
+      </div>
+      <div class="bg-gray-50 rounded-2xl p-6 border border-gray-100">
+        <h3 class="font-semibold text-gray-900 mb-2">NoteForAI vs Claude Memory vs ChatGPT Memory — what's the difference?</h3>
+        <p class="text-gray-500 text-sm leading-relaxed">NoteForAI works across <strong>all AI platforms</strong> (not locked to one). Memory is fully <strong>visible and editable</strong>. Data can be <strong>exported anytime</strong> as Markdown/ZIP/JSON. Can be <strong>self-hosted</strong>. Unlike Claude/ChatGPT built-in memory which is opaque, platform-locked, and cannot be migrated.</p>
+      </div>
+      <div class="bg-gray-50 rounded-2xl p-6 border border-gray-100">
+        <h3 class="font-semibold text-gray-900 mb-2">AI memory tool that works with any LLM?</h3>
+        <p class="text-gray-500 text-sm leading-relaxed">Yes — NoteForAI uses standard HTTP API, so it works with any AI tool that supports system prompts or function calling. Natively supports MCP protocol for Claude Desktop, Claude Code, Cursor, and Windsurf.</p>
       </div>
     </div>
   </div>
