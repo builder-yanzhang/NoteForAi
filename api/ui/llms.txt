@@ -1,0 +1,53 @@
+# NoteForAI
+
+> AI-native persistent memory system. Give any AI a personal notebook that remembers across conversations and tools.
+
+NoteForAI provides persistent memory for AI assistants via HTTP API and MCP (Model Context Protocol). One token gives Claude, ChatGPT, Gemini, Cursor, Copilot, and any other AI tool cross-session memory with full data portability.
+
+## Key Features
+
+- **Persistent AI Memory**: Notes survive across conversations, sessions, and AI tool switches
+- **HTTP + MCP Dual Protocol**: Standard HTTP API for any AI; native MCP Streamable HTTP for Claude Desktop, Claude Code, Cursor, Windsurf
+- **Git Version Control**: Every note change is versioned; accidental deletions are recoverable
+- **Full-text Search**: CJK-aware search across all notes
+- **Data Portability**: Export all notes as Markdown, ZIP, or JSON at any time
+- **Self-hostable**: Single Go binary, no external dependencies
+- **No Registration**: Token-based, create instantly
+
+## API Endpoints
+
+All operations use `POST /{token}/{action}` with JSON body.
+
+- `write` — Create or overwrite a note
+- `read` — Read a note
+- `append` — Append content to a note
+- `delete` — Delete a note
+- `search` — Full-text search across notes
+- `tree` — List all notes
+- `history` — View Git history for a note
+
+## MCP Integration
+
+Add to Claude Desktop or Claude Code:
+
+```json
+{
+  "type": "streamable-http",
+  "url": "https://noteforai.com/{token}/mcp"
+}
+```
+
+## Comparison
+
+| Feature | NoteForAI | Claude Memory | ChatGPT Memory |
+|---------|-----------|---------------|----------------|
+| Cross-platform | Yes | No (Claude only) | No (ChatGPT only) |
+| Visible/editable | Yes | No (opaque) | Limited |
+| Exportable | Yes | No | No |
+| Self-hostable | Yes | No | No |
+| Version history | Yes | No | No |
+
+## Links
+
+- Website: https://noteforai.com
+- Dashboard: https://noteforai.com/dashboard.html

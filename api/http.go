@@ -33,7 +33,7 @@ func (sr *statusRecorder) WriteHeader(code int) {
 	sr.ResponseWriter.WriteHeader(code)
 }
 
-//go:embed ui/index.html ui/dashboard.html ui/i18n.js
+//go:embed ui/index.html ui/dashboard.html ui/i18n.js ui/robots.txt ui/sitemap.xml ui/llms.txt
 var uiFS embed.FS
 
 type HTTPServer struct {
@@ -52,6 +52,9 @@ func NewHTTPServer(s *store.Store, dataDir string) *HTTPServer {
 	srv.mux.HandleFunc("GET /index.html", srv.serveUI)
 	srv.mux.HandleFunc("GET /dashboard.html", srv.serveDashboard)
 	srv.mux.HandleFunc("GET /i18n.js", srv.serveI18n)
+	srv.mux.HandleFunc("GET /robots.txt", srv.serveStatic("ui/robots.txt", "text/plain"))
+	srv.mux.HandleFunc("GET /sitemap.xml", srv.serveStatic("ui/sitemap.xml", "application/xml"))
+	srv.mux.HandleFunc("GET /llms.txt", srv.serveStatic("ui/llms.txt", "text/plain"))
 
 	// Token creation — no auth required
 	srv.mux.HandleFunc("/create_token", srv.createToken)
@@ -97,6 +100,14 @@ func (h *HTTPServer) serveI18n(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	w.Write(data)
+}
+
+func (h *HTTPServer) serveStatic(path, contentType string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		data, _ := uiFS.ReadFile(path)
+		w.Header().Set("Content-Type", contentType+"; charset=utf-8")
+		w.Write(data)
+	}
 }
 
 func (h *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
