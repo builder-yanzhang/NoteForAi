@@ -94,6 +94,29 @@ func NewHTTPServer(s *store.Store, dataDir string) *HTTPServer {
 	// MCP Streamable HTTP
 	srv.mux.HandleFunc("/{token}/mcp", srv.requireToken(srv.serveMCP))
 
+	// /api/* routes — Bearer token only (no token in URL path)
+	bt := srv.requireBearerToken
+	srv.mux.HandleFunc("/api/write", bt(srv.write))
+	srv.mux.HandleFunc("/api/read", bt(srv.read))
+	srv.mux.HandleFunc("/api/edit", bt(srv.edit))
+	srv.mux.HandleFunc("/api/append", bt(srv.append))
+	srv.mux.HandleFunc("/api/delete", bt(srv.delete))
+	srv.mux.HandleFunc("/api/list", bt(srv.list))
+	srv.mux.HandleFunc("/api/tree", bt(srv.tree))
+	srv.mux.HandleFunc("/api/stat", bt(srv.stat))
+	srv.mux.HandleFunc("/api/bulk_read", bt(srv.bulkRead))
+	srv.mux.HandleFunc("/api/bulk_write", bt(srv.bulkWrite))
+	srv.mux.HandleFunc("/api/frontmatter", bt(srv.frontmatter))
+	srv.mux.HandleFunc("/api/move", bt(srv.move))
+	srv.mux.HandleFunc("/api/search", bt(srv.search))
+	srv.mux.HandleFunc("/api/history", bt(srv.history))
+	srv.mux.HandleFunc("/api/diff", bt(srv.diff))
+	srv.mux.HandleFunc("/api/revert", bt(srv.revert))
+	srv.mux.HandleFunc("/api/deleted", bt(srv.deleted))
+	srv.mux.HandleFunc("/api/reindex", bt(srv.reindex))
+	srv.mux.HandleFunc("/api/destroy", bt(srv.destroy))
+	srv.mux.HandleFunc("/api/mcp", bt(srv.serveMCP))
+
 	return srv
 }
 
@@ -144,6 +167,28 @@ func (h *HTTPServer) requireToken(next http.HandlerFunc) http.HandlerFunc {
 		}
 		if !token.IsValid(t) {
 			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return
+		}
+		if !token.Exists(h.dataDir, t) {
+			http.Error(w, "token not found", http.StatusUnauthorized)
+			return
+		}
+		ctx := context.WithValue(r.Context(), tokenCtxKey, t)
+		next(w, r.WithContext(ctx))
+	}
+}
+
+// requireBearerToken validates token exclusively from Authorization: Bearer header.
+// Used by /api/* routes where no token appears in the URL path.
+func (h *HTTPServer) requireBearerToken(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		var t string
+		if strings.HasPrefix(auth, "Bearer ") {
+			t = strings.TrimPrefix(auth, "Bearer ")
+		}
+		if !token.IsValid(t) {
+			http.Error(w, "Authorization: Bearer <token> required", http.StatusUnauthorized)
 			return
 		}
 		if !token.Exists(h.dataDir, t) {
@@ -764,7 +809,8 @@ func (h *HTTPServer) write(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	created, err := h.store.Write(prefixPath(r, path), content)
+	fullPath := prefixPath(r, path)
+	created, err := h.store.Write(fullPath, content)
 	if err != nil {
 		if errors.Is(err, store.ErrQuotaExceeded) {
 			http.Error(w, err.Error(), http.StatusInsufficientStorage)
@@ -774,11 +820,11 @@ func (h *HTTPServer) write(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	status := http.StatusOK
 	if created {
-		w.WriteHeader(http.StatusCreated)
-	} else {
-		w.WriteHeader(http.StatusOK)
+		status = http.StatusCreated
 	}
+	writeJSONStatus(w, status, writeStatResponse(h.store, fullPath, path, created))
 }
 
 func (h *HTTPServer) read(w http.ResponseWriter, r *http.Request) {
@@ -798,6 +844,31 @@ func (h *HTTPServer) read(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Handle lines parameter e.g. "10-50"
+	if linesParam := getParam(r, body, "lines"); linesParam != "" {
+		parts := strings.SplitN(linesParam, "-", 2)
+		if len(parts) != 2 {
+			http.Error(w, "lines format must be 'N-M' (e.g. '10-50')", http.StatusBadRequest)
+			return
+		}
+		from, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
+		to, err2 := strconv.Atoi(strings.TrimSpace(parts[1]))
+		if err1 != nil || err2 != nil || from < 1 || to < from {
+			http.Error(w, "lines format must be 'N-M' (e.g. '10-50')", http.StatusBadRequest)
+			return
+		}
+		allLines := strings.Split(string(data), "\n")
+		total := len(allLines)
+		if from > total {
+			http.Error(w, fmt.Sprintf("start line %d out of range (file has %d lines)", from, total), http.StatusBadRequest)
+			return
+		}
+		if to > total {
+			to = total
+		}
+		data = []byte(strings.Join(allLines[from-1:to], "\n"))
 	}
 
 	if isText(data) {
@@ -850,13 +921,18 @@ func (h *HTTPServer) append(w http.ResponseWriter, r *http.Request) {
 	}
 
 	heading := getParam(r, body, "under_heading")
+	fullPath := prefixPath(r, path)
 	var err error
 	if heading != "" {
-		err = h.store.AppendUnderHeading(prefixPath(r, path), heading, content)
+		err = h.store.AppendUnderHeading(fullPath, heading, content)
 	} else {
-		err = h.store.Append(prefixPath(r, path), content)
+		err = h.store.Append(fullPath, content)
 	}
 	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
 		if errors.Is(err, store.ErrQuotaExceeded) {
 			http.Error(w, err.Error(), http.StatusInsufficientStorage)
 			return
@@ -864,7 +940,7 @@ func (h *HTTPServer) append(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	writeJSON(w, writeStatResponse(h.store, fullPath, path, false))
 }
 
 func (h *HTTPServer) list(w http.ResponseWriter, r *http.Request) {
@@ -1012,11 +1088,12 @@ func (h *HTTPServer) revert(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "path and commit required", http.StatusBadRequest)
 		return
 	}
-	if err := h.store.Revert(prefixPath(r, path), commit); err != nil {
+	fullPath := prefixPath(r, path)
+	if err := h.store.Revert(fullPath, commit); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	writeJSON(w, writeStatResponse(h.store, fullPath, path, false))
 }
 
 func (h *HTTPServer) deleted(w http.ResponseWriter, r *http.Request) {
@@ -1048,11 +1125,16 @@ func (h *HTTPServer) edit(w http.ResponseWriter, r *http.Request) {
 	}
 	// JSON sends replace_all as bool; query string sends it as "true"
 	replaceAll := getBoolParam(body, "replace_all") || getParam(r, body, "replace_all") == "true"
-	if err := h.store.Edit(prefixPath(r, path), oldStr, newStr, replaceAll); err != nil {
+	fullPath := prefixPath(r, path)
+	if err := h.store.Edit(fullPath, oldStr, newStr, replaceAll); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	writeJSON(w, writeStatResponse(h.store, fullPath, path, false))
 }
 
 func (h *HTTPServer) stat(w http.ResponseWriter, r *http.Request) {
@@ -1109,11 +1191,16 @@ func (h *HTTPServer) move(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "from and to required", http.StatusBadRequest)
 		return
 	}
-	if err := h.store.Move(prefixPath(r, from), prefixPath(r, to)); err != nil {
+	dstFull := prefixPath(r, to)
+	if err := h.store.Move(prefixPath(r, from), dstFull); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	writeJSON(w, writeStatResponse(h.store, dstFull, to, false))
 }
 
 func (h *HTTPServer) bulkWrite(w http.ResponseWriter, r *http.Request) {
@@ -1227,4 +1314,23 @@ func writeJSON(w http.ResponseWriter, v any) {
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	enc.Encode(v)
+}
+
+func writeJSONStatus(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	enc.Encode(v)
+}
+
+// writeStatResponse returns a compact metadata response after a successful write.
+// It calls Stat to get current size/lines; on failure returns a minimal response.
+func writeStatResponse(s *store.Store, fullPath, userPath string, created bool) map[string]any {
+	resp := map[string]any{"path": userPath, "created": created}
+	if stat, err := s.Stat(fullPath); err == nil {
+		resp["size"] = stat.Size
+		resp["lines"] = stat.Lines
+	}
+	return resp
 }

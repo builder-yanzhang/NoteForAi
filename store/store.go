@@ -64,19 +64,22 @@ type Indexer interface {
 }
 
 type Entry struct {
-	Name  string `json:"name"`
-	IsDir bool   `json:"is_dir"`
+	Name     string `json:"name"`
+	IsDir    bool   `json:"is_dir"`
+	Size     int64  `json:"size,omitempty"`
+	Modified string `json:"modified,omitempty"`
 }
 
 type TreeNode struct {
 	Name     string      `json:"name"`
-	IsFile   bool        `json:"is_file,omitempty"`
+	IsDir    bool        `json:"is_dir"`
 	Size     int64       `json:"size,omitempty"`
 	Modified string      `json:"modified,omitempty"`
 	Children []*TreeNode `json:"children,omitempty"`
 }
 
 var ErrQuotaExceeded = errors.New("quota exceeded")
+var ErrNotFound = errors.New("not found")
 
 type Store struct {
 	basePath string
@@ -366,10 +369,12 @@ func (s *Store) List(path string) ([]Entry, error) {
 		if e.Name() == ".git" {
 			continue
 		}
-		result = append(result, Entry{
-			Name:  e.Name(),
-			IsDir: e.IsDir(),
-		})
+		entry := Entry{Name: e.Name(), IsDir: e.IsDir()}
+		if info, err := e.Info(); err == nil {
+			entry.Size = info.Size()
+			entry.Modified = info.ModTime().UTC().Format("2006-01-02T15:04:05Z")
+		}
+		result = append(result, entry)
 	}
 	return result, nil
 }
@@ -400,6 +405,7 @@ func (s *Store) buildTree(fullPath string, depth, maxDepth int) (*TreeNode, erro
 
 	node := &TreeNode{
 		Name:     info.Name(),
+		IsDir:    info.IsDir(),
 		Modified: info.ModTime().UTC().Format("2006-01-02T15:04:05Z"),
 	}
 
@@ -425,7 +431,6 @@ func (s *Store) buildTree(fullPath string, depth, maxDepth int) (*TreeNode, erro
 			node.Children = append(node.Children, child)
 		}
 	} else {
-		node.IsFile = true
 		node.Size = info.Size()
 	}
 
@@ -560,7 +565,10 @@ func (s *Store) DestroyToken(token string) {
 func (s *Store) Edit(path string, oldStr, newStr string, replaceAll bool) error {
 	data, err := s.Read(path)
 	if err != nil {
-		return fmt.Errorf("file not found: %s", path)
+		if os.IsNotExist(err) {
+			return fmt.Errorf("%w: %s", ErrNotFound, path)
+		}
+		return err
 	}
 	content := string(data)
 	count := strings.Count(content, oldStr)
@@ -696,7 +704,7 @@ func (s *Store) Move(src, dst string) error {
 	}
 	info, err := os.Stat(srcFull)
 	if err != nil {
-		return fmt.Errorf("source not found: %s", src)
+		return fmt.Errorf("%w: %s", ErrNotFound, src)
 	}
 	if info.IsDir() {
 		return fmt.Errorf("moving directories is not supported; move files individually")
@@ -736,74 +744,155 @@ func (s *Store) Move(src, dst string) error {
 	return nil
 }
 
-// BulkWrite writes multiple files. If atomic=true, all files share a single git commit
-// and writing stops on the first error. If false, errors are collected per-file and
-// each file gets its own git commit.
+// BulkWrite writes multiple files.
+//
+// Non-atomic (default): each file is written and committed independently;
+// errors are collected per-file and processing continues.
+//
+// Atomic: all paths are validated and originals saved first; if any write
+// fails, previously written files are rolled back; on success all files
+// share a single git commit.
 func (s *Store) BulkWrite(token string, items []BulkWriteItem, atomic bool) ([]BulkWriteResult, error) {
 	results := make([]BulkWriteResult, len(items))
-	var relPaths []string
-	hasError := false
+
+	if !atomic {
+		for i, item := range items {
+			path := filepath.Join(token, item.Path)
+			created, err := s.writeInternal(path, []byte(item.Content))
+			if err != nil {
+				results[i] = BulkWriteResult{Path: item.Path, Error: err.Error()}
+				continue
+			}
+			results[i] = BulkWriteResult{Path: item.Path, Created: created}
+			_, rel := tokenAndRel(path)
+			if rel != "" {
+				s.gitCommit(token, rel, "write")
+			}
+		}
+		return results, nil
+	}
+
+	// Atomic: Phase 1 — validate all paths and save originals before any write.
+	type origEntry struct {
+		storePath string
+		fullPath  string
+		data      []byte // nil if file did not exist
+		existed   bool
+	}
+	originals := make([]origEntry, len(items))
 
 	for i, item := range items {
 		path := filepath.Join(token, item.Path)
-		created, err := s.writeInternal(path, []byte(item.Content))
+		full, err := s.resolve(path)
 		if err != nil {
 			results[i] = BulkWriteResult{Path: item.Path, Error: err.Error()}
-			hasError = true
-			if atomic {
-				break
-			}
-			continue
+			return results, fmt.Errorf("atomic bulk_write: path validation failed at %q: %w", item.Path, err)
+		}
+		var orig []byte
+		var existed bool
+		if data, readErr := os.ReadFile(full); readErr == nil {
+			orig = data
+			existed = true
+		}
+		originals[i] = origEntry{storePath: path, fullPath: full, data: orig, existed: existed}
+	}
+
+	// Phase 2 — write all files using writeInternal (no git).
+	var relPaths []string
+	failAt := -1
+
+	for i, item := range items {
+		created, err := s.writeInternal(originals[i].storePath, []byte(item.Content))
+		if err != nil {
+			results[i] = BulkWriteResult{Path: item.Path, Error: err.Error()}
+			failAt = i
+			break
 		}
 		results[i] = BulkWriteResult{Path: item.Path, Created: created}
-		_, rel := tokenAndRel(path)
+		_, rel := tokenAndRel(originals[i].storePath)
 		if rel != "" {
 			relPaths = append(relPaths, rel)
 		}
 	}
 
-	if len(relPaths) == 0 {
-		return results, nil
+	if failAt >= 0 {
+		// Phase 3 — rollback files 0..failAt-1.
+		for i := 0; i < failAt; i++ {
+			orig := originals[i]
+			if orig.existed {
+				// Restore previous content (no git commit).
+				s.writeInternal(orig.storePath, orig.data)
+			} else {
+				// Delete newly-created file.
+				s.rollbackNewFile(tokenFromPath(orig.storePath), orig.fullPath)
+			}
+		}
+		return results, fmt.Errorf("atomic bulk_write failed at %q (index %d), rolled back %d file(s)",
+			items[failAt].Path, failAt, failAt)
 	}
 
-	if atomic {
-		if hasError {
-			return results, fmt.Errorf("bulk_write aborted: partial write, no git commit created")
-		}
+	// Phase 4 — single git commit for all files.
+	if len(relPaths) > 0 {
 		s.gitCommitAll(token, relPaths, "bulk_write")
-	} else {
-		for _, rel := range relPaths {
-			s.gitCommit(token, rel, "write")
-		}
 	}
-
 	return results, nil
 }
 
-// AppendUnderHeading appends content immediately after the first occurrence of
-// the given Markdown heading (e.g. "## 最近动态"). Creates the file if missing.
-// If the heading is not found, falls back to appending at end of file.
+// rollbackNewFile removes a newly-created file (no previous version) during
+// an atomic bulk_write rollback. Updates index and usage without git.
+func (s *Store) rollbackNewFile(token, full string) {
+	lk := s.pathLock(full)
+	lk.Lock()
+	defer lk.Unlock()
+	info, err := os.Stat(full)
+	if err != nil || info.IsDir() {
+		return
+	}
+	s.index.Remove(s.relativePath(full))
+	os.Remove(full)
+	s.addUsage(token, -info.Size())
+}
+
+// headingMatches returns true if line matches the target heading.
+// Supports exact match (e.g. "## A") or text-only match (e.g. "A" matches "## A").
+func headingMatches(line, target string) bool {
+	line = strings.TrimRight(line, " \t")
+	target = strings.TrimSpace(target)
+	if line == target {
+		return true
+	}
+	// Strip leading # characters from the line and compare plain text
+	stripped := strings.TrimLeft(line, "#")
+	stripped = strings.TrimSpace(stripped)
+	return stripped == target
+}
+
+// AppendUnderHeading inserts content immediately after the first matching heading.
+// Matching is flexible: "## A" and "A" both match the line "## A".
+// Returns ErrNotFound if the heading is not present in the file.
+// Creates the file (with heading + content) if it doesn't exist.
 func (s *Store) AppendUnderHeading(path, heading string, content []byte) error {
 	existing, err := s.Read(path)
 	if err != nil {
-		// File doesn't exist — create with heading + content
-		newContent := heading + "\n" + string(content)
-		_, err = s.Write(path, []byte(newContent))
+		if os.IsNotExist(err) {
+			newContent := strings.TrimSpace(heading) + "\n" + string(content) + "\n"
+			_, err = s.Write(path, []byte(newContent))
+			return err
+		}
 		return err
 	}
 
 	lines := strings.Split(string(existing), "\n")
 	insertAt := -1
 	for i, line := range lines {
-		if strings.TrimRight(line, " \t") == strings.TrimRight(heading, " \t") {
+		if headingMatches(line, heading) {
 			insertAt = i + 1
 			break
 		}
 	}
 
 	if insertAt == -1 {
-		// Heading not found — append at end
-		return s.Append(path, content)
+		return fmt.Errorf("%w: heading %q not found in %s", ErrNotFound, heading, path)
 	}
 
 	// Insert content after the heading line
