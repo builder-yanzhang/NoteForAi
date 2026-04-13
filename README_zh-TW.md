@@ -66,7 +66,7 @@ curl -X POST "https://noteforai.com/$TOKEN/write" \
 {
   "mcpServers": {
     "noteforai": {
-      "type": "streamable-http",
+      "type": "http",
       "url": "https://noteforai.com/YOUR_TOKEN/mcp"
     }
   }
@@ -75,7 +75,7 @@ curl -X POST "https://noteforai.com/$TOKEN/write" \
 
 **Claude Code 命令列：**
 ```bash
-claude mcp add noteforai --transport streamable-http https://noteforai.com/YOUR_TOKEN/mcp
+claude mcp add noteforai --transport http https://noteforai.com/YOUR_TOKEN/mcp
 ```
 
 ---

@@ -68,7 +68,7 @@ API: https://noteforai.com/YOUR_TOKEN/
 {
   "mcpServers": {
     "noteforai": {
-      "type": "streamable-http",
+      "type": "http",
       "url": "https://noteforai.com/YOUR_TOKEN/mcp"
     }
   }
@@ -77,7 +77,7 @@ API: https://noteforai.com/YOUR_TOKEN/
 
 **Claude Code CLI：**
 ```bash
-claude mcp add noteforai --transport streamable-http https://noteforai.com/YOUR_TOKEN/mcp
+claude mcp add noteforai --transport http https://noteforai.com/YOUR_TOKEN/mcp
 ```
 
 **セルフホスト版** — stdio：

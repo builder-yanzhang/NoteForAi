@@ -98,7 +98,7 @@ The cleanest way to give Claude or any MCP-compatible AI persistent memory.
 {
   "mcpServers": {
     "noteforai": {
-      "type": "streamable-http",
+      "type": "http",
       "url": "https://noteforai.com/YOUR_TOKEN/mcp"
     }
   }
@@ -107,7 +107,7 @@ The cleanest way to give Claude or any MCP-compatible AI persistent memory.
 
 **Claude Code CLI:**
 ```bash
-claude mcp add noteforai --transport streamable-http https://noteforai.com/YOUR_TOKEN/mcp
+claude mcp add noteforai --transport http https://noteforai.com/YOUR_TOKEN/mcp
 ```
 
 **Self-hosted** — stdio transport:

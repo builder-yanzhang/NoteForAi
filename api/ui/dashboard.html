@@ -623,7 +623,7 @@ function closePanel() { document.getElementById('right-panel').classList.add('cl
 function toggleConfig() {
   document.getElementById('config-token').textContent = TOKEN;
   document.getElementById('config-prompt').textContent = I18N.t('prompt.full', {base: API_BASE, token: TOKEN});
-  document.getElementById('config-mcp').textContent = JSON.stringify({ mcpServers: { noteforai: { type: 'streamable-http', url: API_BASE + '/' + TOKEN + '/mcp' } } }, null, 2);
+  document.getElementById('config-mcp').textContent = JSON.stringify({ mcpServers: { noteforai: { type: 'http', url: API_BASE + '/' + TOKEN + '/mcp' } } }, null, 2);
   openPanel('config');
 }
 

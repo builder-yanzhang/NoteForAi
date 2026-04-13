@@ -70,7 +70,7 @@ Directrices:
 {
   "mcpServers": {
     "noteforai": {
-      "type": "streamable-http",
+      "type": "http",
       "url": "https://noteforai.com/YOUR_TOKEN/mcp"
     }
   }
@@ -79,7 +79,7 @@ Directrices:
 
 **Claude Code CLI：**
 ```bash
-claude mcp add noteforai --transport streamable-http https://noteforai.com/YOUR_TOKEN/mcp
+claude mcp add noteforai --transport http https://noteforai.com/YOUR_TOKEN/mcp
 ```
 
 ---
