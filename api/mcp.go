@@ -185,9 +185,27 @@ func (m *mcpPrefix) stripPrefix(path string) string {
 	return strings.TrimPrefix(path, m.token+"/")
 }
 
+// mustStr extracts a required string argument from MCP tool args.
+// Returns a ToolResultError (never panics) when the argument is missing or not a string,
+// so malformed client requests become structured errors instead of crashing the handler.
+func mustStr(args map[string]any, key string) (string, *mcp.CallToolResult) {
+	s, ok := args[key].(string)
+	if !ok {
+		return "", mcp.NewToolResultError(fmt.Sprintf("missing or invalid argument: %s", key))
+	}
+	return s, nil
+}
+
 func (m *mcpPrefix) write(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	path := req.GetArguments()["path"].(string)
-	content := req.GetArguments()["content"].(string)
+	args := req.GetArguments()
+	path, errRes := mustStr(args, "path")
+	if errRes != nil {
+		return errRes, nil
+	}
+	content, errRes := mustStr(args, "content")
+	if errRes != nil {
+		return errRes, nil
+	}
 
 	created, err := m.store.Write(m.prefix(path), []byte(content))
 	if err != nil {
@@ -200,7 +218,10 @@ func (m *mcpPrefix) write(ctx context.Context, req mcp.CallToolRequest) (*mcp.Ca
 }
 
 func (m *mcpPrefix) read(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	path := req.GetArguments()["path"].(string)
+	path, errRes := mustStr(req.GetArguments(), "path")
+	if errRes != nil {
+		return errRes, nil
+	}
 	data, err := m.store.Read(m.prefix(path))
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
@@ -230,7 +251,10 @@ func (m *mcpPrefix) read(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 }
 
 func (m *mcpPrefix) delete(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	path := req.GetArguments()["path"].(string)
+	path, errRes := mustStr(req.GetArguments(), "path")
+	if errRes != nil {
+		return errRes, nil
+	}
 	if err := m.store.Delete(m.prefix(path)); err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -238,9 +262,16 @@ func (m *mcpPrefix) delete(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 }
 
 func (m *mcpPrefix) append(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	path := req.GetArguments()["path"].(string)
-	content := req.GetArguments()["content"].(string)
-	heading, _ := req.GetArguments()["under_heading"].(string)
+	args := req.GetArguments()
+	path, errRes := mustStr(args, "path")
+	if errRes != nil {
+		return errRes, nil
+	}
+	content, errRes := mustStr(args, "content")
+	if errRes != nil {
+		return errRes, nil
+	}
+	heading, _ := args["under_heading"].(string)
 
 	var err error
 	if heading != "" {
@@ -306,16 +337,20 @@ func printTree(sb *strings.Builder, node *store.TreeNode, prefix string, depth, 
 }
 
 func (m *mcpPrefix) search(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	query := req.GetArguments()["query"].(string)
-	scopePath, _ := req.GetArguments()["path"].(string)
-	useRegex, _ := req.GetArguments()["regex"].(bool)
-	filesOnly, _ := req.GetArguments()["files_only"].(bool)
+	args := req.GetArguments()
+	query, errRes := mustStr(args, "query")
+	if errRes != nil {
+		return errRes, nil
+	}
+	scopePath, _ := args["path"].(string)
+	useRegex, _ := args["regex"].(bool)
+	filesOnly, _ := args["files_only"].(bool)
 	contextLines := 0
-	if c, ok := req.GetArguments()["context"].(float64); ok {
+	if c, ok := args["context"].(float64); ok {
 		contextLines = int(c)
 	}
 	limit := 50
-	if l, ok := req.GetArguments()["limit"].(float64); ok && l > 0 {
+	if l, ok := args["limit"].(float64); ok && l > 0 {
 		limit = int(l)
 	}
 
@@ -370,9 +405,13 @@ func (m *mcpPrefix) search(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 }
 
 func (m *mcpPrefix) history(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	path := req.GetArguments()["path"].(string)
+	args := req.GetArguments()
+	path, errRes := mustStr(args, "path")
+	if errRes != nil {
+		return errRes, nil
+	}
 	limit := 20
-	if l, ok := req.GetArguments()["limit"].(float64); ok && l > 0 {
+	if l, ok := args["limit"].(float64); ok && l > 0 {
 		limit = int(l)
 	}
 	entries, err := m.store.History(m.prefix(path), limit)
@@ -390,8 +429,15 @@ func (m *mcpPrefix) history(ctx context.Context, req mcp.CallToolRequest) (*mcp.
 }
 
 func (m *mcpPrefix) diff(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	path := req.GetArguments()["path"].(string)
-	commit := req.GetArguments()["commit"].(string)
+	args := req.GetArguments()
+	path, errRes := mustStr(args, "path")
+	if errRes != nil {
+		return errRes, nil
+	}
+	commit, errRes := mustStr(args, "commit")
+	if errRes != nil {
+		return errRes, nil
+	}
 	d, err := m.store.Diff(m.prefix(path), commit)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
@@ -400,8 +446,15 @@ func (m *mcpPrefix) diff(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 }
 
 func (m *mcpPrefix) revert(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	path := req.GetArguments()["path"].(string)
-	commit := req.GetArguments()["commit"].(string)
+	args := req.GetArguments()
+	path, errRes := mustStr(args, "path")
+	if errRes != nil {
+		return errRes, nil
+	}
+	commit, errRes := mustStr(args, "commit")
+	if errRes != nil {
+		return errRes, nil
+	}
 	if err := m.store.Revert(m.prefix(path), commit); err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
