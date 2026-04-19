@@ -26,23 +26,26 @@ NoteForAI gives AI assistants a persistent, structured memory store. Notes are o
 
 ## HTTP API Endpoints
 
-All endpoints require `Authorization: Bearer {token}` header.
+**Authentication**: the token is embedded in the URL path as `/{token}/<action>`. There is no `Authorization` header — the token *is* the path prefix. Example: `POST https://noteforai.com/nfa_abc123.../write`.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/write` | Create or overwrite a note |
-| GET | `/read?path=` | Read a note by path |
-| POST | `/append` | Append content to a note |
-| DELETE | `/delete?path=` | Move a note to recycle bin |
-| GET | `/list?path=` | List notes in a directory |
-| GET | `/tree` | Full directory tree |
-| GET | `/search?q=` | Full-text search |
-| GET | `/history?path=` | Git commit history for a note |
-| GET | `/diff?path=&commit=` | Diff between versions |
-| POST | `/revert` | Restore a previous version |
-| GET | `/deleted` | List recycle bin contents |
-| DELETE | `/destroy?path=` | Permanently delete a note |
-| POST | `/create_token` | Create a new API token |
+**Methods**: every endpoint accepts both `POST` (JSON body) and `GET` (query string) for parameters. POST + JSON is the canonical form. Read-style endpoints also accept a trailing path: `GET /{token}/read/path/to/note.md`.
+
+| Endpoint | Params | Description |
+|----------|--------|-------------|
+| `POST /create_token` | — | Create a new token (no auth required) |
+| `POST /{token}/write` | `path`, `content` | Create or overwrite a note |
+| `POST /{token}/read` | `path` | Read a note by path |
+| `POST /{token}/append` | `path`, `content` | Append content to an existing note |
+| `POST /{token}/delete` | `path` | Soft-delete a file **or directory**. For directories this is **recursive**: every file under the path is soft-deleted (each with its own restore entry). There is no `recursive` / `confirm` flag — passing a directory path triggers recursive deletion immediately. Undo via `deleted` + `revert` per file. |
+| `POST /{token}/list` | `path` | List entries in a directory (non-recursive) |
+| `POST /{token}/tree` | `path` | Recursive directory tree |
+| `POST /{token}/search` | `query` (or `q`), `path` | CJK-aware full-text search, optionally scoped to a subpath |
+| `POST /{token}/history` | `path`, `limit` | Git commit history for a note |
+| `POST /{token}/diff` | `path`, `commit` | Unified diff between a note and a past commit |
+| `POST /{token}/revert` | `path`, `commit` | Restore a note (or a soft-deleted entry) to a specific commit |
+| `POST /{token}/deleted` | `limit` | List recoverable soft-deleted files (recycle bin) |
+| `POST /{token}/destroy` | — | **Destroy the entire token namespace** (all notes, index, git history). This is a token-level operation, *not* a per-note delete — it takes no `path` parameter. The token directory is moved to a trash area and cleaned up after `TRASH_DAYS`. |
+| `POST /{token}/mcp` | — | MCP Streamable HTTP endpoint (for MCP clients) |
 
 ## MCP Configuration
 
