@@ -52,6 +52,10 @@ func buildMapping() mapping.IndexMapping {
 }
 
 func (b *BleveIndex) Index(path string, content string) error {
+	// Delete first to ensure stale stored-field content in old segments is purged,
+	// then insert the fresh document. This prevents old snippets from surfacing
+	// in highlight results after a file is overwritten.
+	_ = b.idx.Delete(path)
 	return b.idx.Index(path, doc{Path: path, Content: content})
 }
 

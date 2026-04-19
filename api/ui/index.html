@@ -313,7 +313,7 @@ code,pre{font-family:'JetBrains Mono','Fira Code',monospace;}
       </div>
       <div class="bg-gray-50 rounded-2xl p-6 border border-gray-100">
         <h3 class="font-semibold text-gray-900 mb-2">What MCP server can I use for AI note taking?</h3>
-        <p class="text-gray-500 text-sm leading-relaxed">NoteForAI provides a native MCP (Model Context Protocol) Streamable HTTP server at <code class="text-indigo-600 bg-indigo-50 px-1 rounded">/{token}/mcp</code>. Add it to Claude Desktop or Claude Code with one line: <code class="text-indigo-600 bg-indigo-50 px-1 rounded">{"type":"streamable-http","url":"https://noteforai.com/{token}/mcp"}</code>.</p>
+        <p class="text-gray-500 text-sm leading-relaxed">NoteForAI provides a native MCP (Model Context Protocol) Streamable HTTP server at <code class="text-indigo-600 bg-indigo-50 px-1 rounded">/{token}/mcp</code>. Add it to Claude Desktop or Claude Code with one line: <code class="text-indigo-600 bg-indigo-50 px-1 rounded">{"type":"http","url":"https://noteforai.com/{token}/mcp"}</code>.</p>
       </div>
       <div class="bg-gray-50 rounded-2xl p-6 border border-gray-100">
         <h3 class="font-semibold text-gray-900 mb-2">ChatGPT / Claude 怎么跨对话记住信息？</h3>
@@ -408,7 +408,7 @@ function sendEmail(){
   const tok=currentToken||localStorage.getItem('noteforai_token')||'(N/A)';
   const subject=encodeURIComponent(I18N.t('email.subject'));
   const promptText=I18N.t('prompt.short',{base:API_BASE,token:tok});
-  const body=encodeURIComponent(`NoteForAI\n\nToken: ${tok}\nEndpoint: ${API_BASE}/${tok}/\n\n${promptText}\n\nMCP:\n${JSON.stringify({mcpServers:{noteforai:{type:"streamable-http",url:`${API_BASE}/${tok}/mcp`}}},null,2)}\n\nDashboard: ${API_BASE}/dashboard.html?token=${tok}`);
+  const body=encodeURIComponent(`NoteForAI\n\nToken: ${tok}\nEndpoint: ${API_BASE}/${tok}/\n\n${promptText}\n\nMCP:\n${JSON.stringify({mcpServers:{noteforai:{type:"http",url:`${API_BASE}/${tok}/mcp`}}},null,2)}\n\nDashboard: ${API_BASE}/dashboard.html?token=${tok}`);
   window.open(`mailto:${v}?subject=${subject}&body=${body}`);
   document.getElementById('email-ok').classList.remove('hidden');
   document.getElementById('email-input').value='';
@@ -432,7 +432,7 @@ function fillIntegrationCode() {
   const base = API_BASE;
   const tok = currentToken || localStorage.getItem('noteforai_token') || 'nfa_your_token';
   document.getElementById('prompt-code').textContent = I18N.t('prompt.full', {base, token: tok});
-  document.getElementById('mcp-code').textContent = JSON.stringify({mcpServers:{noteforai:{type:'streamable-http',url: base+'/'+tok+'/mcp'}}}, null, 2);
+  document.getElementById('mcp-code').textContent = JSON.stringify({mcpServers:{noteforai:{type:'http',url: base+'/'+tok+'/mcp'}}}, null, 2);
   document.getElementById('curl-code').textContent = I18N.t('curl.examples', {base, token: tok});
 }
 

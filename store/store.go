@@ -6,17 +6,54 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	git "github.com/go-git/go-git/v5"
+	"gopkg.in/yaml.v3"
 )
 
 type SearchResult struct {
+	Path    string   `json:"path"`
+	Line    int      `json:"line,omitempty"`
+	Match   string   `json:"match,omitempty"`
+	Before  []string `json:"before,omitempty"`
+	After   []string `json:"after,omitempty"`
+	Snippet string   `json:"snippet,omitempty"`
+}
+
+type StatResult struct {
+	Path     string `json:"path"`
+	Size     int64  `json:"size"`
+	Lines    int    `json:"lines,omitempty"`
+	Modified string `json:"modified"`
+	IsDir    bool   `json:"is_dir"`
+}
+
+type BulkReadResult struct {
 	Path    string `json:"path"`
-	Snippet string `json:"snippet"`
+	Content string `json:"content,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+type BulkWriteItem struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
+type BulkWriteResult struct {
+	Path    string `json:"path"`
+	Created bool   `json:"created"`
+	Error   string `json:"error,omitempty"`
+}
+
+type FrontmatterResult struct {
+	Path string         `json:"path"`
+	Meta map[string]any `json:"meta"`
+	Body string         `json:"body"`
 }
 
 type Indexer interface {
@@ -28,16 +65,22 @@ type Indexer interface {
 }
 
 type Entry struct {
-	Name  string `json:"name"`
-	IsDir bool   `json:"is_dir"`
+	Name     string `json:"name"`
+	IsDir    bool   `json:"is_dir"`
+	Size     int64  `json:"size,omitempty"`
+	Modified string `json:"modified,omitempty"`
 }
 
 type TreeNode struct {
 	Name     string      `json:"name"`
+	IsDir    bool        `json:"is_dir"`
+	Size     int64       `json:"size,omitempty"`
+	Modified string      `json:"modified,omitempty"`
 	Children []*TreeNode `json:"children,omitempty"`
 }
 
 var ErrQuotaExceeded = errors.New("quota exceeded")
+var ErrNotFound = errors.New("not found")
 
 type Store struct {
 	basePath string
@@ -327,20 +370,27 @@ func (s *Store) List(path string) ([]Entry, error) {
 		if e.Name() == ".git" {
 			continue
 		}
-		result = append(result, Entry{
-			Name:  e.Name(),
-			IsDir: e.IsDir(),
-		})
+		entry := Entry{Name: e.Name(), IsDir: e.IsDir()}
+		if info, err := e.Info(); err == nil {
+			entry.Size = info.Size()
+			entry.Modified = info.ModTime().UTC().Format("2006-01-02T15:04:05Z")
+		}
+		result = append(result, entry)
 	}
 	return result, nil
 }
 
 func (s *Store) Tree(path string) (*TreeNode, error) {
+	return s.TreeDepth(path, -1)
+}
+
+// TreeDepth returns the directory tree up to maxDepth levels (−1 = unlimited).
+func (s *Store) TreeDepth(path string, maxDepth int) (*TreeNode, error) {
 	full, err := s.resolve(path)
 	if err != nil {
 		return nil, err
 	}
-	node, err := s.buildTree(full)
+	node, err := s.buildTree(full, 0, maxDepth)
 	if err != nil {
 		return nil, err
 	}
@@ -348,15 +398,22 @@ func (s *Store) Tree(path string) (*TreeNode, error) {
 	return node, nil
 }
 
-func (s *Store) buildTree(fullPath string) (*TreeNode, error) {
+func (s *Store) buildTree(fullPath string, depth, maxDepth int) (*TreeNode, error) {
 	info, err := os.Stat(fullPath)
 	if err != nil {
 		return nil, err
 	}
 
-	node := &TreeNode{Name: info.Name()}
+	node := &TreeNode{
+		Name:     info.Name(),
+		IsDir:    info.IsDir(),
+		Modified: info.ModTime().UTC().Format("2006-01-02T15:04:05Z"),
+	}
 
 	if info.IsDir() {
+		if maxDepth >= 0 && depth >= maxDepth {
+			return node, nil // stop recursing
+		}
 		entries, err := os.ReadDir(fullPath)
 		if err != nil {
 			return nil, err
@@ -365,7 +422,7 @@ func (s *Store) buildTree(fullPath string) (*TreeNode, error) {
 			if e.Name() == ".git" {
 				continue
 			}
-			child, err := s.buildTree(filepath.Join(fullPath, e.Name()))
+			child, err := s.buildTree(filepath.Join(fullPath, e.Name()), depth+1, maxDepth)
 			if err != nil {
 				continue
 			}
@@ -374,6 +431,8 @@ func (s *Store) buildTree(fullPath string) (*TreeNode, error) {
 			}
 			node.Children = append(node.Children, child)
 		}
+	} else {
+		node.Size = info.Size()
 	}
 
 	return node, nil
@@ -500,6 +559,422 @@ func (s *Store) DestroyToken(token string) {
 	delete(s.repos, token)
 	delete(s.gitLocks, token)
 	s.repoMu.Unlock()
+}
+
+// Edit replaces occurrences of oldStr with newStr in a file.
+// If replaceAll is false, oldStr must appear exactly once; if true, all occurrences are replaced.
+func (s *Store) Edit(path string, oldStr, newStr string, replaceAll bool) error {
+	data, err := s.Read(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("%w: %s", ErrNotFound, path)
+		}
+		return err
+	}
+	content := string(data)
+	count := strings.Count(content, oldStr)
+	if count == 0 {
+		return fmt.Errorf("old_string not found in %s", path)
+	}
+	if !replaceAll && count > 1 {
+		return fmt.Errorf("ambiguous: found %d matches for old_string, add more surrounding context to make it unique (or set replace_all=true)", count)
+	}
+	var newContent string
+	if replaceAll {
+		newContent = strings.ReplaceAll(content, oldStr, newStr)
+	} else {
+		newContent = strings.Replace(content, oldStr, newStr, 1)
+	}
+	_, err = s.Write(path, []byte(newContent))
+	return err
+}
+
+// Stat returns metadata for a file or directory.
+func (s *Store) Stat(path string) (*StatResult, error) {
+	full, err := s.resolve(path)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(full)
+	if err != nil {
+		return nil, err
+	}
+	result := &StatResult{
+		Path:     path,
+		Size:     info.Size(),
+		Modified: info.ModTime().UTC().Format("2006-01-02T15:04:05Z"),
+		IsDir:    info.IsDir(),
+	}
+	if !info.IsDir() {
+		if data, err := os.ReadFile(full); err == nil {
+			result.Lines = strings.Count(string(data), "\n") + 1
+		}
+	}
+	return result, nil
+}
+
+// RegexSearch searches files under prefix using a regular expression.
+// contextLines controls how many lines before/after each match to include.
+// filesOnly returns only file paths (no line details).
+func (s *Store) RegexSearch(token, pattern, subPath string, contextLines, limit int, filesOnly bool) ([]SearchResult, error) {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("invalid regex: %v", err)
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+
+	baseDir := filepath.Join(s.basePath, token)
+	if subPath != "" {
+		baseDir = filepath.Join(baseDir, subPath)
+	}
+
+	var results []SearchResult
+	seenFiles := map[string]bool{}
+
+	_ = filepath.Walk(baseDir, func(fpath string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if strings.Contains(fpath, ".git") {
+			return nil
+		}
+		if !filesOnly && len(results) >= limit {
+			return nil
+		}
+
+		data, readErr := os.ReadFile(fpath)
+		if readErr != nil || !isText(data) {
+			return nil
+		}
+
+		lines := strings.Split(string(data), "\n")
+		relPath := strings.TrimPrefix(s.relativePath(fpath), token+"/")
+
+		for i, line := range lines {
+			if !re.MatchString(line) {
+				continue
+			}
+			if filesOnly {
+				if !seenFiles[relPath] {
+					seenFiles[relPath] = true
+					results = append(results, SearchResult{Path: relPath})
+				}
+				return nil
+			}
+
+			var before, after []string
+			for j := i - contextLines; j < i; j++ {
+				if j >= 0 {
+					before = append(before, lines[j])
+				}
+			}
+			for j := i + 1; j <= i+contextLines && j < len(lines); j++ {
+				after = append(after, lines[j])
+			}
+			results = append(results, SearchResult{
+				Path:   relPath,
+				Line:   i + 1,
+				Match:  line,
+				Before: before,
+				After:  after,
+			})
+			if len(results) >= limit {
+				return nil
+			}
+		}
+		return nil
+	})
+
+	return results, nil
+}
+
+// Move moves a file from src to dst within the same token space.
+// Both paths must include the token prefix (e.g. "nfa_xxx/a.md" → "nfa_xxx/b.md").
+func (s *Store) Move(src, dst string) error {
+	srcToken := tokenFromPath(src)
+	dstToken := tokenFromPath(dst)
+	if srcToken != dstToken {
+		return fmt.Errorf("cannot move across tokens")
+	}
+
+	srcFull, err := s.resolve(src)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(srcFull)
+	if err != nil {
+		return fmt.Errorf("%w: %s", ErrNotFound, src)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("moving directories is not supported; move files individually")
+	}
+
+	data, err := os.ReadFile(srcFull)
+	if err != nil {
+		return err
+	}
+
+	// Write destination (quota check, index, file)
+	if _, err := s.writeInternal(dst, data); err != nil {
+		return err
+	}
+
+	// Remove source file + update index/usage
+	dstFull, _ := s.resolve(dst)
+	_ = dstFull
+
+	lk := s.pathLock(srcFull)
+	lk.Lock()
+	s.index.Remove(s.relativePath(srcFull))
+	os.Remove(srcFull)
+	s.addUsage(srcToken, -info.Size())
+	lk.Unlock()
+
+	// Git: commit destination (new file)
+	tok, dstRel := tokenAndRel(dst)
+	if dstRel != "" {
+		s.gitCommit(tok, dstRel, "move from "+tokenAndRelPath(src))
+	}
+	// Git: commit source deletion
+	_, srcRel := tokenAndRel(src)
+	if srcRel != "" {
+		s.gitCommitEach(tok, []string{srcRel}, "delete")
+	}
+	return nil
+}
+
+// BulkWrite writes multiple files.
+//
+// Non-atomic (default): each file is written and committed independently;
+// errors are collected per-file and processing continues.
+//
+// Atomic: all paths are validated and originals saved first; if any write
+// fails, previously written files are rolled back; on success all files
+// share a single git commit.
+func (s *Store) BulkWrite(token string, items []BulkWriteItem, atomic bool) ([]BulkWriteResult, error) {
+	results := make([]BulkWriteResult, len(items))
+
+	if !atomic {
+		for i, item := range items {
+			path := filepath.Join(token, item.Path)
+			created, err := s.writeInternal(path, []byte(item.Content))
+			if err != nil {
+				results[i] = BulkWriteResult{Path: item.Path, Error: err.Error()}
+				continue
+			}
+			results[i] = BulkWriteResult{Path: item.Path, Created: created}
+			_, rel := tokenAndRel(path)
+			if rel != "" {
+				s.gitCommit(token, rel, "write")
+			}
+		}
+		return results, nil
+	}
+
+	// Atomic: Phase 1 — validate all paths and save originals before any write.
+	type origEntry struct {
+		storePath string
+		fullPath  string
+		data      []byte // nil if file did not exist
+		existed   bool
+	}
+	originals := make([]origEntry, len(items))
+
+	for i, item := range items {
+		path := filepath.Join(token, item.Path)
+		full, err := s.resolve(path)
+		if err != nil {
+			results[i] = BulkWriteResult{Path: item.Path, Error: err.Error()}
+			return results, fmt.Errorf("atomic bulk_write: path validation failed at %q: %w", item.Path, err)
+		}
+		var orig []byte
+		var existed bool
+		if data, readErr := os.ReadFile(full); readErr == nil {
+			orig = data
+			existed = true
+		}
+		originals[i] = origEntry{storePath: path, fullPath: full, data: orig, existed: existed}
+	}
+
+	// Phase 2 — write all files using writeInternal (no git).
+	var relPaths []string
+	failAt := -1
+
+	for i, item := range items {
+		created, err := s.writeInternal(originals[i].storePath, []byte(item.Content))
+		if err != nil {
+			results[i] = BulkWriteResult{Path: item.Path, Error: err.Error()}
+			failAt = i
+			break
+		}
+		results[i] = BulkWriteResult{Path: item.Path, Created: created}
+		_, rel := tokenAndRel(originals[i].storePath)
+		if rel != "" {
+			relPaths = append(relPaths, rel)
+		}
+	}
+
+	if failAt >= 0 {
+		// Phase 3 — rollback files 0..failAt-1.
+		for i := 0; i < failAt; i++ {
+			orig := originals[i]
+			if orig.existed {
+				// Restore previous content (no git commit).
+				s.writeInternal(orig.storePath, orig.data)
+			} else {
+				// Delete newly-created file.
+				s.rollbackNewFile(tokenFromPath(orig.storePath), orig.fullPath)
+			}
+		}
+		return results, fmt.Errorf("atomic bulk_write failed at %q (index %d), rolled back %d file(s)",
+			items[failAt].Path, failAt, failAt)
+	}
+
+	// Phase 4 — single git commit for all files.
+	if len(relPaths) > 0 {
+		s.gitCommitAll(token, relPaths, "bulk_write")
+	}
+	return results, nil
+}
+
+// rollbackNewFile removes a newly-created file (no previous version) during
+// an atomic bulk_write rollback. Updates index and usage without git.
+func (s *Store) rollbackNewFile(token, full string) {
+	lk := s.pathLock(full)
+	lk.Lock()
+	defer lk.Unlock()
+	info, err := os.Stat(full)
+	if err != nil || info.IsDir() {
+		return
+	}
+	s.index.Remove(s.relativePath(full))
+	os.Remove(full)
+	s.addUsage(token, -info.Size())
+}
+
+// headingMatches returns true if line matches the target heading.
+// Supports exact match (e.g. "## A") or text-only match (e.g. "A" matches "## A").
+func headingMatches(line, target string) bool {
+	line = strings.TrimRight(line, " \t")
+	target = strings.TrimSpace(target)
+	if line == target {
+		return true
+	}
+	// Strip leading # characters from the line and compare plain text
+	stripped := strings.TrimLeft(line, "#")
+	stripped = strings.TrimSpace(stripped)
+	return stripped == target
+}
+
+// AppendUnderHeading inserts content immediately after the first matching heading.
+// Matching is flexible: "## A" and "A" both match the line "## A".
+// Returns ErrNotFound if the heading is not present in the file.
+// Creates the file (with heading + content) if it doesn't exist.
+func (s *Store) AppendUnderHeading(path, heading string, content []byte) error {
+	existing, err := s.Read(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			newContent := strings.TrimSpace(heading) + "\n" + string(content) + "\n"
+			_, err = s.Write(path, []byte(newContent))
+			return err
+		}
+		return err
+	}
+
+	lines := strings.Split(string(existing), "\n")
+	insertAt := -1
+	for i, line := range lines {
+		if headingMatches(line, heading) {
+			insertAt = i + 1
+			break
+		}
+	}
+
+	if insertAt == -1 {
+		return fmt.Errorf("%w: heading %q not found in %s", ErrNotFound, heading, path)
+	}
+
+	// Insert content after the heading line
+	newLines := make([]string, 0, len(lines)+2)
+	newLines = append(newLines, lines[:insertAt]...)
+	newLines = append(newLines, string(content))
+	newLines = append(newLines, lines[insertAt:]...)
+	_, err = s.Write(path, []byte(strings.Join(newLines, "\n")))
+	return err
+}
+
+// ReadFrontmatter parses YAML front matter (--- delimited) from a Markdown file.
+// Uses gopkg.in/yaml.v3 — supports arrays, nested objects, and all YAML types.
+// Returns the metadata map and the body (content after front matter).
+func (s *Store) ReadFrontmatter(path string) (*FrontmatterResult, error) {
+	data, err := s.Read(path)
+	if err != nil {
+		return nil, err
+	}
+
+	content := string(data)
+	meta := map[string]any{}
+	body := content
+
+	if strings.HasPrefix(content, "---\n") {
+		// Find the closing ---
+		rest := content[4:]
+		end := strings.Index(rest, "\n---")
+		if end >= 0 {
+			fmBlock := rest[:end]
+			body = strings.TrimPrefix(rest[end+4:], "\n")
+			// Parse with real YAML parser
+			if parseErr := yaml.Unmarshal([]byte(fmBlock), &meta); parseErr != nil {
+				// Malformed YAML — return empty meta, full body
+				meta = map[string]any{}
+				body = content
+			}
+		}
+	}
+
+	_, rel := tokenAndRel(path)
+	return &FrontmatterResult{Path: rel, Meta: meta, Body: body}, nil
+}
+
+// Reindex fully rebuilds the search index for a token.
+// It first removes ALL Bleve documents under the token prefix (clearing orphans
+// whose disk files no longer exist), then re-indexes every file on disk.
+func (s *Store) Reindex(token string) (int, error) {
+	// Step 1: purge every index entry for this token, including orphans
+	if err := s.index.RemoveByPrefix(token + "/"); err != nil {
+		log.Printf("reindex: remove prefix error for %s: %v", token, err)
+	}
+
+	// Step 2: re-index all files present on disk
+	dir := filepath.Join(s.basePath, token)
+	count := 0
+	var walkErr error
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || strings.Contains(path, ".git") {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil || !isText(data) {
+			return nil
+		}
+		rel := s.relativePath(path)
+		if indexErr := s.index.Index(rel, string(data)); indexErr != nil {
+			walkErr = indexErr
+			log.Printf("reindex error for %s: %v", rel, indexErr)
+		} else {
+			count++
+		}
+		return nil
+	})
+	return count, walkErr
+}
+
+// tokenAndRelPath returns only the relative part of a store path.
+func tokenAndRelPath(path string) string {
+	_, rel := tokenAndRel(path)
+	return rel
 }
 
 // isText returns true if content appears to be text (no null bytes in first 512 bytes).

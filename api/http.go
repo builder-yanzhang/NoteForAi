@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -21,6 +22,10 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+type contextKey string
+
+const tokenCtxKey contextKey = "token"
+
 const maxBodySize = 10 << 20 // 10 MB
 
 type statusRecorder struct {
@@ -33,7 +38,7 @@ func (sr *statusRecorder) WriteHeader(code int) {
 	sr.ResponseWriter.WriteHeader(code)
 }
 
-//go:embed ui/index.html ui/dashboard.html ui/i18n.js ui/robots.txt ui/sitemap.xml ui/llms.txt
+//go:embed ui/index.html ui/dashboard.html ui/i18n.js ui/robots.txt ui/sitemap.xml ui/llms.txt ui/google6e25dcdf9042f0b5.html
 var uiFS embed.FS
 
 type HTTPServer struct {
@@ -55,6 +60,7 @@ func NewHTTPServer(s *store.Store, dataDir string) *HTTPServer {
 	srv.mux.HandleFunc("GET /robots.txt", srv.serveStatic("ui/robots.txt", "text/plain"))
 	srv.mux.HandleFunc("GET /sitemap.xml", srv.serveStatic("ui/sitemap.xml", "application/xml"))
 	srv.mux.HandleFunc("GET /llms.txt", srv.serveStatic("ui/llms.txt", "text/plain"))
+	srv.mux.HandleFunc("GET /google6e25dcdf9042f0b5.html", srv.serveStatic("ui/google6e25dcdf9042f0b5.html", "text/html"))
 
 	// Token creation — no auth required
 	srv.mux.HandleFunc("/create_token", srv.createToken)
@@ -63,6 +69,13 @@ func NewHTTPServer(s *store.Store, dataDir string) *HTTPServer {
 	srv.mux.HandleFunc("/{token}/write", srv.requireToken(srv.write))
 	srv.mux.HandleFunc("/{token}/read", srv.requireToken(srv.read))
 	srv.mux.HandleFunc("/{token}/read/{path...}", srv.requireToken(srv.read))
+	srv.mux.HandleFunc("/{token}/edit", srv.requireToken(srv.edit))
+	srv.mux.HandleFunc("/{token}/stat", srv.requireToken(srv.stat))
+	srv.mux.HandleFunc("/{token}/stat/{path...}", srv.requireToken(srv.stat))
+	srv.mux.HandleFunc("/{token}/bulk_read", srv.requireToken(srv.bulkRead))
+	srv.mux.HandleFunc("/{token}/bulk_write", srv.requireToken(srv.bulkWrite))
+	srv.mux.HandleFunc("/{token}/frontmatter", srv.requireToken(srv.frontmatter))
+	srv.mux.HandleFunc("/{token}/move", srv.requireToken(srv.move))
 	srv.mux.HandleFunc("/{token}/delete", srv.requireToken(srv.delete))
 	srv.mux.HandleFunc("/{token}/append", srv.requireToken(srv.append))
 	srv.mux.HandleFunc("/{token}/list", srv.requireToken(srv.list))
@@ -75,10 +88,37 @@ func NewHTTPServer(s *store.Store, dataDir string) *HTTPServer {
 	srv.mux.HandleFunc("/{token}/diff", srv.requireToken(srv.diff))
 	srv.mux.HandleFunc("/{token}/revert", srv.requireToken(srv.revert))
 	srv.mux.HandleFunc("/{token}/deleted", srv.requireToken(srv.deleted))
+	srv.mux.HandleFunc("/{token}/reindex", srv.requireToken(srv.reindex))
 	srv.mux.HandleFunc("/{token}/destroy", srv.requireToken(srv.destroy))
 
 	// MCP Streamable HTTP
 	srv.mux.HandleFunc("/{token}/mcp", srv.requireToken(srv.serveMCP))
+
+	// Bearer token routes — no token in URL path, use Authorization: Bearer <token>
+	// Available at both /api/<op> and /<op> (short form)
+	bt := srv.requireBearerToken
+	for _, prefix := range []string{"/api/", "/"} {
+		srv.mux.HandleFunc(prefix+"write", bt(srv.write))
+		srv.mux.HandleFunc(prefix+"read", bt(srv.read))
+		srv.mux.HandleFunc(prefix+"edit", bt(srv.edit))
+		srv.mux.HandleFunc(prefix+"append", bt(srv.append))
+		srv.mux.HandleFunc(prefix+"delete", bt(srv.delete))
+		srv.mux.HandleFunc(prefix+"list", bt(srv.list))
+		srv.mux.HandleFunc(prefix+"tree", bt(srv.tree))
+		srv.mux.HandleFunc(prefix+"stat", bt(srv.stat))
+		srv.mux.HandleFunc(prefix+"bulk_read", bt(srv.bulkRead))
+		srv.mux.HandleFunc(prefix+"bulk_write", bt(srv.bulkWrite))
+		srv.mux.HandleFunc(prefix+"frontmatter", bt(srv.frontmatter))
+		srv.mux.HandleFunc(prefix+"move", bt(srv.move))
+		srv.mux.HandleFunc(prefix+"search", bt(srv.search))
+		srv.mux.HandleFunc(prefix+"history", bt(srv.history))
+		srv.mux.HandleFunc(prefix+"diff", bt(srv.diff))
+		srv.mux.HandleFunc(prefix+"revert", bt(srv.revert))
+		srv.mux.HandleFunc(prefix+"deleted", bt(srv.deleted))
+		srv.mux.HandleFunc(prefix+"reindex", bt(srv.reindex))
+		srv.mux.HandleFunc(prefix+"destroy", bt(srv.destroy))
+		srv.mux.HandleFunc(prefix+"mcp", bt(srv.serveMCP))
+	}
 
 	return srv
 }
@@ -118,10 +158,16 @@ func (h *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Printf("%s %s %d %s", r.Method, r.URL.Path, rec.status, time.Since(start).Round(time.Millisecond))
 }
 
-// requireToken validates the token from the URL path.
+// requireToken validates the token from the URL path or Authorization: Bearer header.
 func (h *HTTPServer) requireToken(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		t := r.PathValue("token")
+		if !token.IsValid(t) {
+			// Fall back to Authorization: Bearer {token}
+			if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+				t = strings.TrimPrefix(auth, "Bearer ")
+			}
+		}
 		if !token.IsValid(t) {
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
@@ -130,8 +176,39 @@ func (h *HTTPServer) requireToken(next http.HandlerFunc) http.HandlerFunc {
 			http.Error(w, "token not found", http.StatusUnauthorized)
 			return
 		}
-		next(w, r)
+		ctx := context.WithValue(r.Context(), tokenCtxKey, t)
+		next(w, r.WithContext(ctx))
 	}
+}
+
+// requireBearerToken validates token exclusively from Authorization: Bearer header.
+// Used by /api/* routes where no token appears in the URL path.
+func (h *HTTPServer) requireBearerToken(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		var t string
+		if strings.HasPrefix(auth, "Bearer ") {
+			t = strings.TrimPrefix(auth, "Bearer ")
+		}
+		if !token.IsValid(t) {
+			http.Error(w, "Authorization: Bearer <token> required", http.StatusUnauthorized)
+			return
+		}
+		if !token.Exists(h.dataDir, t) {
+			http.Error(w, "token not found", http.StatusUnauthorized)
+			return
+		}
+		ctx := context.WithValue(r.Context(), tokenCtxKey, t)
+		next(w, r.WithContext(ctx))
+	}
+}
+
+// getToken reads the validated token from context (set by requireToken).
+func getToken(r *http.Request) string {
+	if t, ok := r.Context().Value(tokenCtxKey).(string); ok && t != "" {
+		return t
+	}
+	return r.PathValue("token")
 }
 
 // getParam reads a parameter from JSON body (POST) or query string (GET).
@@ -142,6 +219,40 @@ func getParam(r *http.Request, parsed map[string]any, key string) string {
 		}
 	}
 	return r.URL.Query().Get(key)
+}
+
+// getBoolParam reads a boolean param from a JSON body (accepts bool or "true" string).
+func getBoolParam(parsed map[string]any, key string) bool {
+	if v, ok := parsed[key]; ok {
+		switch val := v.(type) {
+		case bool:
+			return val
+		case string:
+			return val == "true"
+		}
+	}
+	return false
+}
+
+// getIntParam reads an integer param from JSON body (float64/string) or query string.
+// Returns (value, true) if found and valid; (0, false) otherwise.
+func getIntParam(r *http.Request, parsed map[string]any, key string) (int, bool) {
+	if v, ok := parsed[key]; ok {
+		switch val := v.(type) {
+		case float64:
+			return int(val), true
+		case string:
+			if n, err := strconv.Atoi(val); err == nil {
+				return n, true
+			}
+		}
+	}
+	if s := r.URL.Query().Get(key); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			return n, true
+		}
+	}
+	return 0, false
 }
 
 // parseBody parses JSON body for POST requests, returns empty map for GET.
@@ -158,7 +269,7 @@ func parseBody(r *http.Request) map[string]any {
 
 // prefixPath prepends the token to the user's path for isolation.
 func prefixPath(r *http.Request, userPath string) string {
-	t := r.PathValue("token")
+	t := getToken(r)
 	if userPath == "" || userPath == "." {
 		return t
 	}
@@ -296,7 +407,7 @@ AI 直接调用笔记工具，无需在提示词中描述接口，效果最好�
 {
   "mcpServers": {
     "noteforai": {
-      "type": "streamable-http",
+      "type": "http",
       "url": "` + endpoint + `/mcp"
     }
   }
@@ -306,7 +417,7 @@ AI 直接调用笔记工具，无需在提示词中描述接口，效果最好�
 
 ### Claude Code
 ` + "```bash" + `
-claude mcp add noteforai --transport streamable-http ` + endpoint + `/mcp
+claude mcp add noteforai --transport http ` + endpoint + `/mcp
 ` + "```" + `
 
 ---
@@ -385,7 +496,7 @@ Settings → MCP Servers → 添加（JSON 格式）：
 ` + "```json" + `
 {
   "noteforai": {
-    "type": "streamable-http",
+    "type": "http",
     "url": "` + endpoint + `/mcp"
   }
 }
@@ -701,7 +812,8 @@ func (h *HTTPServer) write(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	created, err := h.store.Write(prefixPath(r, path), content)
+	fullPath := prefixPath(r, path)
+	created, err := h.store.Write(fullPath, content)
 	if err != nil {
 		if errors.Is(err, store.ErrQuotaExceeded) {
 			http.Error(w, err.Error(), http.StatusInsufficientStorage)
@@ -711,11 +823,11 @@ func (h *HTTPServer) write(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	status := http.StatusOK
 	if created {
-		w.WriteHeader(http.StatusCreated)
-	} else {
-		w.WriteHeader(http.StatusOK)
+		status = http.StatusCreated
 	}
+	writeJSONStatus(w, status, writeStatResponse(h.store, fullPath, path, created))
 }
 
 func (h *HTTPServer) read(w http.ResponseWriter, r *http.Request) {
@@ -735,6 +847,31 @@ func (h *HTTPServer) read(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Handle lines parameter e.g. "10-50"
+	if linesParam := getParam(r, body, "lines"); linesParam != "" {
+		parts := strings.SplitN(linesParam, "-", 2)
+		if len(parts) != 2 {
+			http.Error(w, "lines format must be 'N-M' (e.g. '10-50')", http.StatusBadRequest)
+			return
+		}
+		from, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
+		to, err2 := strconv.Atoi(strings.TrimSpace(parts[1]))
+		if err1 != nil || err2 != nil || from < 1 || to < from {
+			http.Error(w, "lines format must be 'N-M' (e.g. '10-50')", http.StatusBadRequest)
+			return
+		}
+		allLines := strings.Split(string(data), "\n")
+		total := len(allLines)
+		if from > total {
+			http.Error(w, fmt.Sprintf("start line %d out of range (file has %d lines)", from, total), http.StatusBadRequest)
+			return
+		}
+		if to > total {
+			to = total
+		}
+		data = []byte(strings.Join(allLines[from-1:to], "\n"))
 	}
 
 	if isText(data) {
@@ -786,7 +923,19 @@ func (h *HTTPServer) append(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.store.Append(prefixPath(r, path), content); err != nil {
+	heading := getParam(r, body, "under_heading")
+	fullPath := prefixPath(r, path)
+	var err error
+	if heading != "" {
+		err = h.store.AppendUnderHeading(fullPath, heading, content)
+	} else {
+		err = h.store.Append(fullPath, content)
+	}
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
 		if errors.Is(err, store.ErrQuotaExceeded) {
 			http.Error(w, err.Error(), http.StatusInsufficientStorage)
 			return
@@ -794,7 +943,7 @@ func (h *HTTPServer) append(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	writeJSON(w, writeStatResponse(h.store, fullPath, path, false))
 }
 
 func (h *HTTPServer) list(w http.ResponseWriter, r *http.Request) {
@@ -819,7 +968,14 @@ func (h *HTTPServer) tree(w http.ResponseWriter, r *http.Request) {
 	path := getPathParam(r, body)
 	full := prefixPath(r, path)
 
-	node, err := h.store.Tree(full)
+	maxDepth := -1 // unlimited by default
+	if n, ok := getIntParam(r, body, "max_depth"); ok {
+		maxDepth = n
+	} else if n, ok := getIntParam(r, body, "depth"); ok {
+		maxDepth = n
+	}
+
+	node, err := h.store.TreeDepth(full, maxDepth)
 	if err != nil {
 		if os.IsNotExist(err) {
 			http.Error(w, "not found", http.StatusNotFound)
@@ -842,32 +998,50 @@ func (h *HTTPServer) search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	t := r.PathValue("token")
+	t := getToken(r)
 	scopePath := getParam(r, body, "path")
+	useRegex := getBoolParam(body, "regex") || getParam(r, body, "regex") == "true"
+	filesOnly := getBoolParam(body, "files_only") || getParam(r, body, "files_only") == "true"
 
-	// Force scope to user's prefix
-	var searchPrefix string
-	if scopePath != "" {
-		searchPrefix = filepath.Join(t, scopePath)
-	} else {
-		searchPrefix = t + "/"
+	contextLines := 0
+	if n, ok := getIntParam(r, body, "context"); ok && n >= 0 {
+		contextLines = n
+	}
+	limit := 50
+	if n, ok := getIntParam(r, body, "limit"); ok && n > 0 {
+		limit = n
 	}
 
-	results, err := h.store.Search(query, searchPrefix)
+	var results []store.SearchResult
+	var err error
+
+	if useRegex {
+		results, err = h.store.RegexSearch(t, query, scopePath, contextLines, limit, filesOnly)
+	} else {
+		var searchPrefix string
+		if scopePath != "" {
+			searchPrefix = filepath.Join(t, scopePath)
+		} else {
+			searchPrefix = t + "/"
+		}
+		results, err = h.store.Search(query, searchPrefix)
+		// Strip token prefix
+		for i := range results {
+			results[i].Path = strings.TrimPrefix(results[i].Path, t+"/")
+			if filesOnly {
+				results[i].Snippet = ""
+			}
+		}
+		if limit > 0 && len(results) > limit {
+			results = results[:limit]
+		}
+	}
+
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	// Strip token prefix from result paths
-	stripped := make([]store.SearchResult, len(results))
-	for i, r := range results {
-		stripped[i] = store.SearchResult{
-			Path:    strings.TrimPrefix(r.Path, t+"/"),
-			Snippet: r.Snippet,
-		}
-	}
-	writeJSON(w, stripped)
+	writeJSON(w, results)
 }
 
 func (h *HTTPServer) history(w http.ResponseWriter, r *http.Request) {
@@ -878,10 +1052,8 @@ func (h *HTTPServer) history(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	limit := 20
-	if s := getParam(r, body, "limit"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			limit = n
-		}
+	if n, ok := getIntParam(r, body, "limit"); ok && n > 0 {
+		limit = n
 	}
 	entries, err := h.store.History(prefixPath(r, path), limit)
 	if err != nil {
@@ -919,22 +1091,21 @@ func (h *HTTPServer) revert(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "path and commit required", http.StatusBadRequest)
 		return
 	}
-	if err := h.store.Revert(prefixPath(r, path), commit); err != nil {
+	fullPath := prefixPath(r, path)
+	if err := h.store.Revert(fullPath, commit); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	writeJSON(w, writeStatResponse(h.store, fullPath, path, false))
 }
 
 func (h *HTTPServer) deleted(w http.ResponseWriter, r *http.Request) {
 	body := parseBody(r)
 	limit := 50
-	if s := getParam(r, body, "limit"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			limit = n
-		}
+	if n, ok := getIntParam(r, body, "limit"); ok && n > 0 {
+		limit = n
 	}
-	t := r.PathValue("token")
+	t := getToken(r)
 	entries, err := h.store.Deleted(t, limit)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -946,8 +1117,160 @@ func (h *HTTPServer) deleted(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, entries)
 }
 
+func (h *HTTPServer) edit(w http.ResponseWriter, r *http.Request) {
+	body := parseBody(r)
+	path := getParam(r, body, "path")
+	oldStr := getParam(r, body, "old")
+	newStr := getParam(r, body, "new")
+	if path == "" || oldStr == "" {
+		http.Error(w, "path and old required", http.StatusBadRequest)
+		return
+	}
+	// JSON sends replace_all as bool; query string sends it as "true"
+	replaceAll := getBoolParam(body, "replace_all") || getParam(r, body, "replace_all") == "true"
+	fullPath := prefixPath(r, path)
+	if err := h.store.Edit(fullPath, oldStr, newStr, replaceAll); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, writeStatResponse(h.store, fullPath, path, false))
+}
+
+func (h *HTTPServer) stat(w http.ResponseWriter, r *http.Request) {
+	body := parseBody(r)
+	path := getPathParam(r, body)
+	result, err := h.store.Stat(prefixPath(r, path))
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Strip token prefix from path
+	result.Path = strings.TrimPrefix(result.Path, getToken(r)+"/")
+	writeJSON(w, result)
+}
+
+func (h *HTTPServer) bulkRead(w http.ResponseWriter, r *http.Request) {
+	body := parseBody(r)
+	t := getToken(r)
+
+	var paths []string
+	if ps, ok := body["paths"].([]any); ok {
+		for _, p := range ps {
+			if s, ok := p.(string); ok {
+				paths = append(paths, s)
+			}
+		}
+	}
+	if len(paths) == 0 {
+		http.Error(w, "paths array required", http.StatusBadRequest)
+		return
+	}
+
+	results := make([]store.BulkReadResult, len(paths))
+	for i, p := range paths {
+		data, err := h.store.Read(filepath.Join(t, p))
+		if err != nil {
+			results[i] = store.BulkReadResult{Path: p, Error: err.Error()}
+		} else {
+			results[i] = store.BulkReadResult{Path: p, Content: string(data)}
+		}
+	}
+	writeJSON(w, results)
+}
+
+func (h *HTTPServer) move(w http.ResponseWriter, r *http.Request) {
+	body := parseBody(r)
+	from := getParam(r, body, "from")
+	to := getParam(r, body, "to")
+	if from == "" || to == "" {
+		http.Error(w, "from and to required", http.StatusBadRequest)
+		return
+	}
+	dstFull := prefixPath(r, to)
+	if err := h.store.Move(prefixPath(r, from), dstFull); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, writeStatResponse(h.store, dstFull, to, false))
+}
+
+func (h *HTTPServer) bulkWrite(w http.ResponseWriter, r *http.Request) {
+	body := parseBody(r)
+	t := getToken(r)
+
+	var items []store.BulkWriteItem
+	if raw, ok := body["files"].([]any); ok {
+		for _, f := range raw {
+			if m, ok := f.(map[string]any); ok {
+				path, _ := m["path"].(string)
+				content, _ := m["content"].(string)
+				if path != "" {
+					items = append(items, store.BulkWriteItem{Path: path, Content: content})
+				}
+			}
+		}
+	}
+	if len(items) == 0 {
+		http.Error(w, "files array required", http.StatusBadRequest)
+		return
+	}
+
+	atomic := getBoolParam(body, "atomic") || getParam(r, body, "atomic") == "true"
+	results, err := h.store.BulkWrite(t, items, atomic)
+	if err != nil {
+		if errors.Is(err, store.ErrQuotaExceeded) {
+			http.Error(w, err.Error(), http.StatusInsufficientStorage)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, results)
+}
+
+func (h *HTTPServer) frontmatter(w http.ResponseWriter, r *http.Request) {
+	body := parseBody(r)
+	path := getParam(r, body, "path")
+	if path == "" {
+		http.Error(w, "path required", http.StatusBadRequest)
+		return
+	}
+	result, err := h.store.ReadFrontmatter(prefixPath(r, path))
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, result)
+}
+
+func (h *HTTPServer) reindex(w http.ResponseWriter, r *http.Request) {
+	t := getToken(r)
+	count, err := h.store.Reindex(t)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]int{"indexed": count})
+}
+
 func (h *HTTPServer) destroy(w http.ResponseWriter, r *http.Request) {
-	t := r.PathValue("token")
+	t := getToken(r)
 	if err := token.Destroy(h.dataDir, t); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -972,7 +1295,7 @@ func (h *HTTPServer) getOrCreateMCP(tok string) *server.StreamableHTTPServer {
 }
 
 func (h *HTTPServer) serveMCP(w http.ResponseWriter, r *http.Request) {
-	tok := r.PathValue("token")
+	tok := getToken(r)
 	h.getOrCreateMCP(tok).ServeHTTP(w, r)
 }
 
@@ -994,4 +1317,23 @@ func writeJSON(w http.ResponseWriter, v any) {
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	enc.Encode(v)
+}
+
+func writeJSONStatus(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	enc.Encode(v)
+}
+
+// writeStatResponse returns a compact metadata response after a successful write.
+// It calls Stat to get current size/lines; on failure returns a minimal response.
+func writeStatResponse(s *store.Store, fullPath, userPath string, created bool) map[string]any {
+	resp := map[string]any{"path": userPath, "created": created}
+	if stat, err := s.Stat(fullPath); err == nil {
+		resp["size"] = stat.Size
+		resp["lines"] = stat.Lines
+	}
+	return resp
 }
