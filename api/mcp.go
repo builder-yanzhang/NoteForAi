@@ -481,10 +481,20 @@ func (m *mcpPrefix) deleted(ctx context.Context, req mcp.CallToolRequest) (*mcp.
 }
 
 func (m *mcpPrefix) edit(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	path := req.GetArguments()["path"].(string)
-	oldStr := req.GetArguments()["old"].(string)
-	newStr := req.GetArguments()["new"].(string)
-	replaceAll, _ := req.GetArguments()["replace_all"].(bool)
+	args := req.GetArguments()
+	path, errRes := mustStr(args, "path")
+	if errRes != nil {
+		return errRes, nil
+	}
+	oldStr, errRes := mustStr(args, "old")
+	if errRes != nil {
+		return errRes, nil
+	}
+	newStr, errRes := mustStr(args, "new")
+	if errRes != nil {
+		return errRes, nil
+	}
+	replaceAll, _ := args["replace_all"].(bool)
 	if err := m.store.Edit(m.prefix(path), oldStr, newStr, replaceAll); err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -492,7 +502,10 @@ func (m *mcpPrefix) edit(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 }
 
 func (m *mcpPrefix) stat(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	path := req.GetArguments()["path"].(string)
+	path, errRes := mustStr(req.GetArguments(), "path")
+	if errRes != nil {
+		return errRes, nil
+	}
 	result, err := m.store.Stat(m.prefix(path))
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
@@ -532,8 +545,15 @@ func (m *mcpPrefix) bulkRead(ctx context.Context, req mcp.CallToolRequest) (*mcp
 }
 
 func (m *mcpPrefix) move(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	from := req.GetArguments()["from"].(string)
-	to := req.GetArguments()["to"].(string)
+	args := req.GetArguments()
+	from, errRes := mustStr(args, "from")
+	if errRes != nil {
+		return errRes, nil
+	}
+	to, errRes := mustStr(args, "to")
+	if errRes != nil {
+		return errRes, nil
+	}
 	if err := m.store.Move(m.prefix(from), m.prefix(to)); err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -570,7 +590,10 @@ func (m *mcpPrefix) bulkWrite(ctx context.Context, req mcp.CallToolRequest) (*mc
 }
 
 func (m *mcpPrefix) frontmatter(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	path := req.GetArguments()["path"].(string)
+	path, errRes := mustStr(req.GetArguments(), "path")
+	if errRes != nil {
+		return errRes, nil
+	}
 	result, err := m.store.ReadFrontmatter(m.prefix(path))
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
