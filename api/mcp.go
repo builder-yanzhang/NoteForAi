@@ -19,46 +19,54 @@ import (
 func NewMCPServer(s *store.Store, tok string) *server.MCPServer {
 	srv := server.NewMCPServer("NoteForAI", "1.0.0",
 		server.WithToolCapabilities(true),
-		server.WithInstructions(`NoteForAI — AI 专属持久记忆系统，跨对话保存和检索信息。
+		server.WithInstructions(`NoteForAI(NFA) — AI 专属持久记忆系统(MCP 工具直接调用)。
 
-## 启动流程
-每次对话开始：
-1. read("index.md")
-2. 若 index.md 包含「请先完成初始化」区块 →
-   在回应用户任何请求之前，先执行其中的引导流程
-3. 否则 → 正常对话，按下方规则记录
+## 启动协议
+- index.md 通常已被宿主自动加载,不要重复 read。
+- 看当前结构:tree(depth=2)。
+- 子目录细节:先 read 该目录的 README.md(若存在)。
+- 若 index.md 包含「请先完成初始化」区块,优先执行其中的引导流程。
 
-## 何时记录
-以 index.md「记录时机」的设置为准。
-若 index.md 中无此设置，默认：遇到重要决策、项目进展、明确待办、用户偏好时主动记录。
+## 何时写
+任一即可:
+1. 用户说"记一下/沉淀/保存"
+2. 工程决策含 Why,跨会话仍需要
+3. 排查/优化沉淀出可复用模式
+4. 项目状态变化(部署/迁移/架构改动)
+5. 用户偏好/工作风格(明示或观察到的)
 
-## 记录格式
-- 文件用 .md 后缀，首行 # 标题
-- 按主题组织中文目录：个人/、工作/、项目/
-- 追加内容标注日期（### YYYY-MM-DD）
-- 新建用 write，补充用 append，信息有变化用 write 覆盖
+## 何时不写
+- 敏感(密码/Token/真名/手机/邮箱/MAC/SSH 私钥)→ 永远去 host 本地保险位置(如 ~/vault/),NFA 只留 stub 引用
+- index.md 是导航不是内容容器 — 详细落子目录
+- 微步骤/逐步推进的过程 → 落 日志/<YYYY-MM>.md,**不**进 index.md
+
+## 落点决策(按主题组织,层级自定义)
+推荐顶层目录(可按需调整):
+| 类型 | 建议落点 |
+|---|---|
+| 通用方法论 | 方法论/ 或 methodology/ |
+| 项目专属知识 | 项目/<名称>/ 或 projects/<name>/ |
+| 基础设施/运维 | 基础设施/ 或 infra/ |
+| 个人偏好/身份 | 个人/ 或 personal/ |
+| 当月事件流水 | 日志/<YYYY-MM>.md 或 logs/<YYYY-MM>.md |
+| 月度提炼 | 日志/<YYYY-MM>-里程碑.md |
+
+文件数 >20 时考虑给目录加 README.md 作入口。
+
+## 工具用法优先级(选高效路径,省 token)
+- 改小段 → edit(path, old, new),禁 read+write 全文
+- 加新段到指定标题下 → append(path, content, under_heading="..."),禁 read+write
+- 多文件读 → bulk_read([...]),禁循环 read
+- 大文件部分读 → stat + read(path, lines="N-M"),禁全文 read
+- 多文件原子写 → bulk_write(files, atomic=true),禁循环 write
+- 改名/移动(保 Git history) → move(from, to),禁 read+write+delete
+- 复杂搜索 → search(query, regex=true, context=3),返回带行号和上下文的命中
+- 删错恢复 → deleted() 列出 → revert(path, restore_hash)
+- 解析 YAML 元数据 → frontmatter(path),返回 meta + body 分开
 
 ## 对话结束前
-append 更新 index.md 的"最近动态"（### YYYY-MM-DD，3-5 条要点，每条一句话）。
-
-## 工具速查
-- read(path, lines?) — 启动必读 index.md；lines="10-50" 可读片段
-- write(path, content) — 新建或覆盖
-- edit(path, old, new, replace_all?) — 精准替换，比 write 省 token
-- append(path, content, under_heading?) — 追加到末尾；under_heading 插入到指定标题下
-- stat(path) — 文件元数据（大小/行数/修改时间）
-- bulk_read(paths) — 批量读取多个文件
-- bulk_write(files, atomic?) — 批量写入多个文件，atomic=true 共用一次 Git 提交
-- frontmatter(path) — 解析 Markdown 前置 YAML 元数据
-- move(from, to) — 移动/重命名文件
-- delete(path) — 删除文件（可通过 deleted + revert 恢复）
-- search(query, regex?, context?, files_only?, limit?) — 关键词或正则搜索
-- list(path) — 列出目录内容
-- tree(path, depth?) — 目录树，depth 默认 3
-- history(path) — 查看历史版本列表（附 hash）
-- diff(path, commit) — 查看某次变更内容
-- revert(path, commit) — 恢复到指定版本
-- deleted() — 查看可恢复的已删除文件`),
+append 到 日志/<当月>.md 一行该会话最重要的进展(不是 index.md)。
+index.md 的"最近动态"段保留 3-5 条最新速览;旧条目让位月日志。`),
 	)
 
 	p := &mcpPrefix{store: s, token: tok}
